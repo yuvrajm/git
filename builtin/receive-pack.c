@@ -106,15 +106,23 @@ static int receive_pack_config(const char *var, const char *value, void *cb)
 	return git_default_config(var, value, cb);
 }
 
+static const char *capabilities(void)
+{
+	static char buf[1024];
+	int ret = snprintf(buf, sizeof(buf),
+			   " report-status delete-refs side-band-64k%s",
+			   prefer_ofs_delta ? " ofs-delta" : "");
+	assert(ret < sizeof(buf));
+	return buf;
+}
+
 static int show_ref(const char *path, const unsigned char *sha1, int flag, void *cb_data)
 {
 	if (sent_capabilities)
 		packet_write(1, "%s %s\n", sha1_to_hex(sha1), path);
 	else
-		packet_write(1, "%s %s%c%s%s\n",
-			     sha1_to_hex(sha1), path, 0,
-			     " report-status delete-refs side-band-64k",
-			     prefer_ofs_delta ? " ofs-delta" : "");
+		packet_write(1, "%s %s%c%s\n",
+			     sha1_to_hex(sha1), path, 0, capabilities());
 	sent_capabilities = 1;
 	return 0;
 }
