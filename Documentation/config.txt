@@ -1592,6 +1592,15 @@ receive.unpackLimit::
 	especially on slow filesystems.  If not set, the value of
 	`transfer.unpackLimit` is used instead.
 
+receive.packSizeLimit::
+	If the pack file transferred in a push exceeds this limit,
+	then the entire push will be refused. This is meant to prevent
+	an unintended large push (typically a result of the user not
+	being aware of exactly what is being pushed, e.g. pushing a
+	large rewritten history) from entering the repo. If not set,
+	there is no upper limit on the size of the pack transferred
+	in a single push.
+
 receive.commitCountLimit::
 	If the number of commits received in a push exceeds this limit,
 	then the entire push will be refused. This is meant to prevent

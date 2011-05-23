@@ -50,10 +50,11 @@ static int pack_objects(int fd, struct ref *refs, struct extra_have_objects *ext
 		NULL,
 		NULL,
 		NULL,
+		NULL,
 	};
 	struct child_process po;
 	int i;
-	char buf[40];
+	char buf1[40], buf2[40];
 
 	i = 4;
 	if (args->use_thin_pack)
@@ -64,10 +65,15 @@ static int pack_objects(int fd, struct ref *refs, struct extra_have_objects *ext
 		argv[i++] = "-q";
 	if (args->progress)
 		argv[i++] = "--progress";
+	if (args->max_pack_size > 0) {
+		snprintf(buf1, sizeof(buf1), "--max-pack-size=%lu",
+			 args->max_pack_size);
+		argv[i++] = buf1;
+	}
 	if (args->max_commit_count > 0) {
-		snprintf(buf, sizeof(buf), "--max-commit-count=%lu",
+		snprintf(buf2, sizeof(buf2), "--max-commit-count=%lu",
 			 args->max_commit_count);
-		argv[i++] = buf;
+		argv[i++] = buf2;
 	}
 	memset(&po, 0, sizeof(po));
 	po.argv = argv;
@@ -271,6 +277,8 @@ int send_pack(struct send_pack_args *args,
 		args->use_ofs_delta = 1;
 	if (server_supports("side-band-64k"))
 		use_sideband = 1;
+	if ((p = server_supports("limit-pack-size=")))
+		args->max_pack_size = strtoul(p, NULL, 10);
 	if ((p = server_supports("limit-commit-count=")))
 		args->max_commit_count = strtoul(p, NULL, 10);
 

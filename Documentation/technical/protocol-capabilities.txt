@@ -205,6 +205,7 @@ the server. If the check fails, the client must abort the upload, and
 report the reason for the aborted push back to the user.
 The following "limit-*" capabilites are recognized:
 
+ - limit-pack-size=<num>    (Maximum size (in bytes) of uploaded pack)
  - limit-commit-count=<num> (Maximum number of commits in a pack)
 
 More "limit-*" capabilities may be added in the future. The client

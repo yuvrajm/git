@@ -28,7 +28,7 @@ static int receive_fsck_objects;
 static int receive_unpack_limit = -1;
 static int transfer_unpack_limit = -1;
 static int unpack_limit = 100;
-static unsigned long limit_commit_count;
+static unsigned long limit_pack_size, limit_commit_count;
 static int report_status;
 static int use_sideband;
 static int prefer_ofs_delta = 1;
@@ -71,6 +71,11 @@ static int receive_pack_config(const char *var, const char *value, void *cb)
 
 	if (strcmp(var, "transfer.unpacklimit") == 0) {
 		transfer_unpack_limit = git_config_int(var, value);
+		return 0;
+	}
+
+	if (strcmp(var, "receive.packsizelimit") == 0) {
+		limit_pack_size = git_config_ulong(var, value);
 		return 0;
 	}
 
@@ -118,6 +123,9 @@ static const char *capabilities(void)
 	int ret = snprintf(buf, sizeof(buf),
 			   " report-status delete-refs side-band-64k%s",
 			   prefer_ofs_delta ? " ofs-delta" : "");
+	if (limit_pack_size > 0)
+		ret += snprintf(buf + ret, sizeof(buf) - ret,
+				" limit-pack-size=%lu", limit_pack_size);
 	if (limit_commit_count > 0)
 		ret += snprintf(buf + ret, sizeof(buf) - ret,
 				" limit-commit-count=%lu", limit_commit_count);
