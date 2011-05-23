@@ -1141,22 +1141,44 @@ static int pack_offset_sort(const void *_a, const void *_b)
 			(a->in_pack_offset > b->in_pack_offset);
 }
 
+static unsigned long estimate_packed_size(const struct object_entry *entry)
+{
+	if (entry->in_pack) {
+		/* Assume that all packed objects are reused as-is */
+		struct revindex_entry *revidx = find_pack_revindex(
+			entry->in_pack,
+			entry->in_pack_offset);
+		return revidx[1].offset - entry->in_pack_offset;
+	}
+	return 0;
+}
+
 static void get_object_details(void)
 {
 	uint32_t i;
 	struct object_entry **sorted_by_offset;
+	unsigned long sum_size;
 
 	sorted_by_offset = xcalloc(nr_objects, sizeof(struct object_entry *));
 	for (i = 0; i < nr_objects; i++)
 		sorted_by_offset[i] = objects + i;
 	qsort(sorted_by_offset, nr_objects, sizeof(*sorted_by_offset), pack_offset_sort);
 
+	if (pack_to_stdout && pack_size_limit)
+		sum_size = sizeof(struct pack_header) + 20; /* pack overhead */
+
 	for (i = 0; i < nr_objects; i++) {
 		struct object_entry *entry = sorted_by_offset[i];
 		check_object(entry);
 		if (big_file_threshold <= entry->size)
 			entry->no_try_delta = 1;
+		if (pack_to_stdout && pack_size_limit && !entry->preferred_base)
+			sum_size += estimate_packed_size(entry);
 	}
+
+	if (pack_to_stdout && pack_size_limit && sum_size > pack_size_limit)
+		die("estimated pack size exceeds the pack size limit (%lu bytes)",
+		    pack_size_limit);
 
 	free(sorted_by_offset);
 }
