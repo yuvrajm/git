@@ -28,7 +28,7 @@ static int receive_fsck_objects;
 static int receive_unpack_limit = -1;
 static int transfer_unpack_limit = -1;
 static int unpack_limit = 100;
-static unsigned long limit_pack_size, limit_commit_count;
+static unsigned long limit_pack_size, limit_commit_count, limit_object_count;
 static int report_status;
 static int use_sideband;
 static int prefer_ofs_delta = 1;
@@ -81,6 +81,11 @@ static int receive_pack_config(const char *var, const char *value, void *cb)
 
 	if (strcmp(var, "receive.commitcountlimit") == 0) {
 		limit_commit_count = git_config_ulong(var, value);
+		return 0;
+	}
+
+	if (strcmp(var, "receive.objectcountlimit") == 0) {
+		limit_object_count = git_config_ulong(var, value);
 		return 0;
 	}
 
@@ -673,7 +678,9 @@ static const char *unpack(void)
 			"--pack_header=%"PRIu32",%"PRIu32,
 			ntohl(hdr.hdr_version), ntohl(hdr.hdr_entries));
 
-	if (ntohl(hdr.hdr_entries) < unpack_limit) {
+	if (limit_object_count > 0 && ntohl(hdr.hdr_entries) > limit_object_count)
+		return "received pack exceeds configured receive.objectCountLimit";
+	else if (ntohl(hdr.hdr_entries) < unpack_limit) {
 		int code, i = 0;
 		const char *unpacker[4];
 		unpacker[i++] = "unpack-objects";
