@@ -251,7 +251,7 @@ int send_pack(struct send_pack_args *args,
 	int status_report = 0;
 	int use_sideband = 0;
 	unsigned cmds_sent = 0;
-	int ret;
+	int ret = 0;
 	struct async demux;
 
 	/* Does the other end support the reporting? */
@@ -339,25 +339,18 @@ int send_pack(struct send_pack_args *args,
 	}
 
 	if (new_refs && cmds_sent) {
-		if (pack_objects(out, remote_refs, extra_have, args) < 0) {
-			for (ref = remote_refs; ref; ref = ref->next)
-				ref->status = REF_STATUS_NONE;
+		if ((ret = pack_objects(out, remote_refs, extra_have, args))) {
 			if (args->stateless_rpc)
 				close(out);
 			if (git_connection_is_socket(conn))
 				shutdown(fd[0], SHUT_WR);
-			if (use_sideband)
-				finish_async(&demux);
-			return -1;
 		}
 	}
 	if (args->stateless_rpc && cmds_sent)
 		packet_flush(out);
 
 	if (status_report && cmds_sent)
-		ret = receive_status(in, remote_refs);
-	else
-		ret = 0;
+		ret |= receive_status(in, remote_refs);
 	if (args->stateless_rpc)
 		packet_flush(out);
 
