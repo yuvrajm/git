@@ -396,6 +396,40 @@ test_expect_success 'verify resulting packs' '
 	git verify-pack test-11-*.pack
 '
 
+test_expect_success 'make a few more commits' '
+	git reset --hard $commit &&
+	echo "change" > file &&
+	git add file &&
+	git commit -m second &&
+	commit2=`git rev-parse --verify HEAD` &&
+	echo "more change" >> file &&
+	git commit -a -m third &&
+	commit3=`git rev-parse --verify HEAD` &&
+	echo "even more change" >> file &&
+	git commit -a -m fourth &&
+	commit4=`git rev-parse --verify HEAD` && {
+		echo $commit &&
+		echo $commit2 &&
+		echo $commit3 &&
+		echo $commit4
+	} >>commit-list
+'
+
+test_expect_success '--stdout works with large enough --max-commit-count' '
+	git pack-objects --revs --stdout --max-commit-count=4 <commit-list >test-17.pack &&
+	git index-pack --strict test-17.pack
+'
+
+test_expect_success 'verify resulting pack' '
+	git verify-pack test-17.pack
+'
+
+test_expect_success '--stdout fails when pack exceeds --max-commit-count' '
+	test_must_fail git pack-objects --revs --stdout --max-commit-count=3 <commit-list >test-18.pack 2>errs &&
+	test_must_fail git index-pack --strict test-18.pack &&
+	grep -q "commit count limit" errs
+'
+
 #
 # WARNING!
 #

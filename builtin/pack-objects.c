@@ -61,7 +61,7 @@ struct object_entry {
  */
 static struct object_entry *objects;
 static struct pack_idx_entry **written_list;
-static uint32_t nr_objects, nr_alloc, nr_result, nr_written;
+static uint32_t nr_objects, nr_alloc, nr_result, nr_commits, nr_written;
 
 static int non_empty;
 static int reuse_delta = 1, reuse_object = 1;
@@ -653,8 +653,11 @@ static int add_object_entry(const unsigned char *sha1, enum object_type type,
 	if (ix >= 0) {
 		if (exclude) {
 			entry = objects + object_ix[ix] - 1;
-			if (!entry->preferred_base)
+			if (!entry->preferred_base) {
 				nr_result--;
+				if (entry->type == OBJ_COMMIT)
+					nr_commits--;
+			}
 			entry->preferred_base = 1;
 		}
 		return 0;
@@ -694,8 +697,11 @@ static int add_object_entry(const unsigned char *sha1, enum object_type type,
 		entry->type = type;
 	if (exclude)
 		entry->preferred_base = 1;
-	else
+	else {
 		nr_result++;
+		if (type == OBJ_COMMIT)
+			nr_commits++;
+	}
 	if (found_pack) {
 		entry->in_pack = found_pack;
 		entry->in_pack_offset = found_offset;
@@ -2125,6 +2131,7 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 	const char **rp_av;
 	int rp_ac_alloc = 64;
 	int rp_ac;
+	unsigned long commit_count_limit = 0;
 
 	read_replace_refs = 0;
 
@@ -2176,6 +2183,11 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 		if (!prefixcmp(arg, "--max-pack-size=")) {
 			pack_size_limit_cfg = 0;
 			if (!git_parse_ulong(arg+16, &pack_size_limit))
+				usage(pack_usage);
+			continue;
+		}
+		if (!prefixcmp(arg, "--max-commit-count=")) {
+			if (!git_parse_ulong(arg+19, &commit_count_limit))
 				usage(pack_usage);
 			continue;
 		}
@@ -2322,6 +2334,9 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 		pack_size_limit = 1024*1024;
 	}
 
+	if (!pack_to_stdout && commit_count_limit)
+		die("--max-commit-count is only useful together with --stdout.");
+
 	if (!pack_to_stdout && thin)
 		die("--thin cannot be used to build an indexable pack.");
 
@@ -2348,6 +2363,9 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 
 	if (non_empty && !nr_result)
 		return 0;
+	if (pack_to_stdout && commit_count_limit && commit_count_limit < nr_commits)
+		die("unable to make pack within the commit count limit"
+			" (%lu commits)", commit_count_limit);
 	if (nr_result)
 		prepare_pack(window, depth);
 	write_pack_file();
