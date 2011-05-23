@@ -49,9 +49,11 @@ static int pack_objects(int fd, struct ref *refs, struct extra_have_objects *ext
 		NULL,
 		NULL,
 		NULL,
+		NULL,
 	};
 	struct child_process po;
 	int i;
+	char buf[40];
 
 	i = 4;
 	if (args->use_thin_pack)
@@ -62,6 +64,11 @@ static int pack_objects(int fd, struct ref *refs, struct extra_have_objects *ext
 		argv[i++] = "-q";
 	if (args->progress)
 		argv[i++] = "--progress";
+	if (args->max_commit_count > 0) {
+		snprintf(buf, sizeof(buf), "--max-commit-count=%lu",
+			 args->max_commit_count);
+		argv[i++] = buf;
+	}
 	memset(&po, 0, sizeof(po));
 	po.argv = argv;
 	po.in = -1;
@@ -253,6 +260,7 @@ int send_pack(struct send_pack_args *args,
 	unsigned cmds_sent = 0;
 	int ret = 0;
 	struct async demux;
+	const char *p;
 
 	/* Does the other end support the reporting? */
 	if (server_supports("report-status"))
@@ -263,6 +271,8 @@ int send_pack(struct send_pack_args *args,
 		args->use_ofs_delta = 1;
 	if (server_supports("side-band-64k"))
 		use_sideband = 1;
+	if ((p = server_supports("limit-commit-count=")))
+		args->max_commit_count = strtoul(p, NULL, 10);
 
 	if (!remote_refs) {
 		fprintf(stderr, "No refs in common and none specified; doing nothing.\n"
