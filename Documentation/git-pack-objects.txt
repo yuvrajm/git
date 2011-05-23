@@ -112,6 +112,9 @@ base-name::
 	If specified,  multiple packfiles may be created.
 	The default is unlimited, unless the config variable
 	`pack.packSizeLimit` is set.
++
+When used together with --stdout, the command will fail with an error
+message if the pack output exceeds the given limit.
 
 --max-commit-count=<n>::
 	This option is only useful together with --stdout.

@@ -229,7 +229,7 @@ static unsigned long write_object(struct sha1file *f,
 
 	if (!entry->delta)
 		usable_delta = 0;	/* no delta */
-	else if (!pack_size_limit)
+	else if (!pack_size_limit || pack_to_stdout)
 	       usable_delta = 1;	/* unlimited packfile */
 	else if (entry->delta->idx.offset == (off_t)-1)
 		usable_delta = 0;	/* base was written to another pack */
@@ -478,6 +478,9 @@ static void write_pack_file(void)
 		 * If so, rewrite it like in fast-import
 		 */
 		if (pack_to_stdout) {
+			if (nr_written != nr_remaining)
+				die("unable to make pack within the pack size"
+				    " limit (%lu bytes)", pack_size_limit);
 			sha1close(f, sha1, CSUM_CLOSE);
 		} else if (nr_written == nr_remaining) {
 			sha1close(f, sha1, CSUM_FSYNC);
@@ -2327,9 +2330,7 @@ int cmd_pack_objects(int argc, const char **argv, const char *prefix)
 
 	if (!pack_to_stdout && !pack_size_limit)
 		pack_size_limit = pack_size_limit_cfg;
-	if (pack_to_stdout && pack_size_limit)
-		die("--max-pack-size cannot be used to build a pack for transfer.");
-	if (pack_size_limit && pack_size_limit < 1024*1024) {
+	if (!pack_to_stdout && pack_size_limit && pack_size_limit < 1024*1024) {
 		warning("minimum pack size limit is 1 MiB");
 		pack_size_limit = 1024*1024;
 	}

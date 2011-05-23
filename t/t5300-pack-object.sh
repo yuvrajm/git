@@ -396,6 +396,49 @@ test_expect_success 'verify resulting packs' '
 	git verify-pack test-11-*.pack
 '
 
+test_expect_success '--stdout ignores pack.packSizeLimit' '
+	git pack-objects --stdout <obj-list >test-12.pack &&
+	git index-pack --strict test-12.pack
+'
+
+test_expect_success 'verify resulting pack' '
+	git verify-pack test-12.pack
+'
+
+test_expect_success 'honor --max-pack-size' '
+	git config --unset pack.packSizeLimit &&
+	packname_13=$(git pack-objects --max-pack-size=3m test-13 <obj-list) &&
+	test 2 = $(ls test-13-*.pack | wc -l)
+'
+
+test_expect_success 'verify resulting packs' '
+	git verify-pack test-13-*.pack
+'
+
+test_expect_success 'tolerate --max-pack-size smaller than biggest object' '
+	packname_14=$(git pack-objects --max-pack-size=1 test-14 <obj-list) &&
+	test 5 = $(ls test-14-*.pack | wc -l)
+'
+
+test_expect_success 'verify resulting packs' '
+	git verify-pack test-14-*.pack
+'
+
+test_expect_success '--stdout works with large enough --max-pack-size' '
+	git pack-objects --stdout --max-pack-size=10m <obj-list >test-15.pack &&
+	git index-pack --strict test-15.pack
+'
+
+test_expect_success 'verify resulting pack' '
+	git verify-pack test-15.pack
+'
+
+test_expect_success '--stdout fails when pack exceeds --max-pack-size' '
+	test_must_fail git pack-objects --stdout --max-pack-size=1 <obj-list >test-16.pack 2>errs &&
+	test_must_fail git index-pack --strict test-16.pack &&
+	grep -q "pack size limit" errs
+'
+
 test_expect_success 'make a few more commits' '
 	git reset --hard $commit &&
 	echo "change" > file &&
