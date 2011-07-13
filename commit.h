@@ -168,4 +168,6 @@ extern int commit_tree(const char *msg, unsigned char *tree,
 		struct commit_list *parents, unsigned char *ret,
 		const char *author);
 
+unsigned long commit_generation(const struct commit *commit);
+
 #endif /* COMMIT_H */

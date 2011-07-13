@@ -6,6 +6,7 @@
 #include "diff.h"
 #include "revision.h"
 #include "notes.h"
+#include "metadata-cache.h"
 
 int save_commit_buffer = 1;
 
@@ -844,4 +845,39 @@ int commit_tree(const char *msg, unsigned char *tree,
 	result = write_sha1_file(buffer.buf, buffer.len, commit_type, ret);
 	strbuf_release(&buffer);
 	return result;
+}
+
+static struct metadata_cache generations =
+	METADATA_CACHE_INIT("generations", sizeof(uint32_t), NULL);
+
+static unsigned long commit_generation_recurse(struct commit *c)
+{
+	struct commit_list *p;
+	uint32_t r;
+
+	if (!metadata_cache_lookup_uint32(&generations, &c->object, &r))
+		return r;
+
+	if (parse_commit(c) < 0)
+		die("unable to parse commit: %s", sha1_to_hex(c->object.sha1));
+
+	if (!c->parents)
+		return 0;
+
+	r = 0;
+	for (p = c->parents; p; p = p->next) {
+		unsigned long pgen = commit_generation_recurse(p->item);
+		if (pgen > r)
+			r = pgen;
+	}
+	r++;
+
+	metadata_cache_add_uint32(&generations, &c->object, r);
+	return r;
+}
+
+unsigned long commit_generation(const struct commit *commit)
+{
+	/* drop const because we may call parse_commit */
+	return commit_generation_recurse((struct commit *)commit);
 }
