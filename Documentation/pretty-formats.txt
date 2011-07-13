@@ -133,6 +133,7 @@ The placeholders are:
 - '%gD': reflog selector, e.g., `refs/stash@\{1\}`
 - '%gd': shortened reflog selector, e.g., `stash@\{1\}`
 - '%gs': reflog subject
+- '%G': generation number (i.e., distance of path to farthest root ancestor)
 - '%Cred': switch color to red
 - '%Cgreen': switch color to green
 - '%Cblue': switch color to blue
