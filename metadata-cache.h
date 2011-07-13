@@ -37,4 +37,7 @@ void metadata_cache_add_uint32(struct metadata_cache *,
 			       const struct object *,
 			       uint32_t value);
 
+/* Common validity token functions */
+void metadata_graph_validity(unsigned char out[20]);
+
 #endif /* METADATA_CACHE_H */

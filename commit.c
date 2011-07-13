@@ -232,6 +232,27 @@ int unregister_shallow(const unsigned char *sha1)
 	return 0;
 }
 
+void commit_graft_validity(git_SHA_CTX *ctx)
+{
+	int i;
+
+	prepare_commit_graft();
+
+	for (i = 0; i < commit_graft_nr; i++) {
+		const struct commit_graft *c = commit_graft[i];
+		git_SHA1_Update(ctx, c->sha1, 20);
+		if (c->nr_parent < 0)
+			git_SHA1_Update(ctx, "shallow", 7);
+		else {
+			uint32_t v = htonl(c->nr_parent);
+			int j;
+			git_SHA1_Update(ctx, &v, sizeof(v));
+			for (j = 0; j < c->nr_parent; j++)
+				git_SHA1_Update(ctx, c->parent[j], 20);
+		}
+	}
+}
+
 int parse_commit_buffer(struct commit *item, void *buffer, unsigned long size)
 {
 	char *tail = buffer;
@@ -848,7 +869,8 @@ int commit_tree(const char *msg, unsigned char *tree,
 }
 
 static struct metadata_cache generations =
-	METADATA_CACHE_INIT("generations", sizeof(uint32_t), NULL);
+	METADATA_CACHE_INIT("generations", sizeof(uint32_t),
+			    metadata_graph_validity);
 
 static unsigned long commit_generation_recurse(struct commit *c)
 {

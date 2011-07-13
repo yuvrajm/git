@@ -2,6 +2,7 @@
 #include "metadata-cache.h"
 #include "sha1-lookup.h"
 #include "object.h"
+#include "commit.h"
 
 static struct metadata_cache **autowrite;
 static int autowrite_nr;
@@ -334,4 +335,19 @@ void metadata_cache_add_uint32(struct metadata_cache *c,
 
 	value = htonl(value);
 	metadata_cache_add(c, obj, &value);
+}
+
+void metadata_graph_validity(unsigned char out[20])
+{
+	git_SHA_CTX ctx;
+
+	git_SHA1_Init(&ctx);
+
+	git_SHA1_Update(&ctx, "grafts", 6);
+	commit_graft_validity(&ctx);
+
+	git_SHA1_Update(&ctx, "replace", 7);
+	replace_object_validity(&ctx);
+
+	git_SHA1_Final(out, &ctx);
 }

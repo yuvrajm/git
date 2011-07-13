@@ -128,3 +128,10 @@ Functions
 	Convenience wrapper for storing unsigned 32-bit integers. Note
 	that integers are stored on disk in network-byte order, so it is
 	safe to access caches from any architecture.
+
+`metadata_graph_validity`::
+
+	This function is intended to be used with `METADATA_CACHE_INIT`
+	as a validity function. It returns a SHA1 summarizing the
+	current state of any commit grafts and replace objects that
+	would affect the shape of the history graph.
