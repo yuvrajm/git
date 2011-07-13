@@ -13,6 +13,9 @@ could, for example, map objects into 32-bit integers. For ease of use,
 functions are provided for storing the values of arbitrary pointers,
 which can point to strings or structs.
 
+Note that the decorate API only stores the mapping in memory. See the
+metadata-cache API for persistent storage.
+
 Data Structures
 ---------------
 
