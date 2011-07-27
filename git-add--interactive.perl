@@ -1267,6 +1267,12 @@ sub display_hunks {
 	return $i;
 }
 
+sub trim_error {
+	local $_ = shift;
+	s/ at .*git-add--interactive line \d+, <STDIN> line \d+.*$//;
+	return $_;
+}
+
 sub patch_update_file {
 	my $quit = 0;
 	my ($ix, $num);
@@ -1419,9 +1425,8 @@ sub patch_update_file {
 					$search_string = qr{$regex}m;
 				};
 				if ($@) {
-					my ($err,$exp) = ($@, $1);
-					$err =~ s/ at .*git-add--interactive line \d+, <STDIN> line \d+.*$//;
-					error_msg "Malformed search regexp $exp: $err\n";
+					my $exp = $1;
+					error_msg "Malformed search regexp $exp: " . trim_error($@) . "\n";
 					next;
 				}
 				my $iy = $ix;
