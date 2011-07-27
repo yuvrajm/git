@@ -86,6 +86,7 @@ sub colored {
 # command line options
 my $patch_mode;
 my $patch_mode_revision;
+my @patch_mode_hunk_filter;
 
 sub apply_patch;
 sub apply_patch_for_checkout_commit;
@@ -1273,17 +1274,33 @@ sub trim_error {
 	return $_;
 }
 
+sub want_hunk {
+	my $hunk = shift;
+	my $text = join('', @{$hunk->{TEXT}});
+
+	foreach my $re (@patch_mode_hunk_filter) {
+		return 1 if $text =~ $re;
+	}
+	return 0;
+}
+
 sub patch_update_file {
 	my $quit = 0;
 	my ($ix, $num);
 	my $path = shift;
 	my ($head, @hunk) = parse_diff($path);
+
+	if (@patch_mode_hunk_filter) {
+		@hunk = grep { want_hunk($_) } @hunk;
+		return unless @hunk;
+	}
+
 	($head, my $mode, my $deletion) = parse_diff_header($head);
 	for (@{$head->{DISPLAY}}) {
 		print;
 	}
 
-	if (@{$mode->{TEXT}}) {
+	if (@{$mode->{TEXT}} && !@patch_mode_hunk_filter) {
 		unshift @hunk, $mode;
 	}
 	if (@{$deletion->{TEXT}}) {
@@ -1567,6 +1584,11 @@ sub process_args {
 	while (@ARGV) {
 		if ($ARGV[0] =~ /--patch(?:=(.*))?/) {
 			$patch_mode = defined $1 ? $1 : 'stage';
+		}
+		elsif ($ARGV[0] =~ /--hunk-filter=(.*)/) {
+			my $re = eval { qr{$1}m }
+				or die "malformed hunk filter $1: " . trim_error($@);
+			push @patch_mode_hunk_filter, $re;
 		}
 		else {
 			last;
