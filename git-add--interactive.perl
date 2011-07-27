@@ -87,6 +87,7 @@ sub colored {
 my $patch_mode;
 my $patch_mode_revision;
 my @patch_mode_hunk_filter;
+my $patch_mode_negate_filter;
 
 sub apply_patch;
 sub apply_patch_for_checkout_commit;
@@ -1279,9 +1280,9 @@ sub want_hunk {
 	my $text = join('', @{$hunk->{TEXT}});
 
 	foreach my $re (@patch_mode_hunk_filter) {
-		return 1 if $text =~ $re;
+		return !$patch_mode_negate_filter if $text =~ $re;
 	}
-	return 0;
+	return $patch_mode_negate_filter;
 }
 
 sub patch_update_file {
@@ -1589,6 +1590,9 @@ sub process_args {
 			my $re = eval { qr{$1}m }
 				or die "malformed hunk filter $1: " . trim_error($@);
 			push @patch_mode_hunk_filter, $re;
+		}
+		elsif ($ARGV[0] eq '--negate-hunk-filter') {
+			$patch_mode_negate_filter = 1;
 		}
 		else {
 			last;
