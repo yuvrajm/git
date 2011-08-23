@@ -1146,7 +1146,7 @@ static int git_status_config(const char *k, const char *v, void *cb)
 		return 0;
 	}
 	if (!strcmp(k, "status.color") || !strcmp(k, "color.status")) {
-		s->use_color = git_config_colorbool(k, v, -1);
+		s->use_color = git_config_colorbool(k, v);
 		return 0;
 	}
 	if (!prefixcmp(k, "status.color.") || !prefixcmp(k, "color.status.")) {
@@ -1239,10 +1239,6 @@ int cmd_status(int argc, const char **argv, const char *prefix)
 
 	if (s.relative_paths)
 		s.prefix = prefix;
-	if (s.use_color == -1)
-		s.use_color = git_use_color_default;
-	if (diff_use_color_default == -1)
-		diff_use_color_default = git_use_color_default;
 
 	switch (status_format) {
 	case STATUS_FORMAT_SHORT:
@@ -1396,15 +1392,10 @@ int cmd_commit(int argc, const char **argv, const char *prefix)
 	git_config(git_commit_config, &s);
 	determine_whence(&s);
 
-	if (s.use_color == -1)
-		s.use_color = git_use_color_default;
 	argc = parse_and_validate_options(argc, argv, builtin_commit_usage,
 					  prefix, &s);
-	if (dry_run) {
-		if (diff_use_color_default == -1)
-			diff_use_color_default = git_use_color_default;
+	if (dry_run)
 		return dry_run_commit(argc, argv, prefix, &s);
-	}
 	index_file = prepare_index(argc, argv, prefix, 0);
 
 	/* Set up everything for writing the commit object.  This includes
