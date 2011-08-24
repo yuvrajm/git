@@ -342,6 +342,11 @@ def gitConfig(key, args = None): # set args to "--bool", for instance
         _gitConfig[key] = read_pipe(cmd, ignore_error=True).strip()
     return _gitConfig[key]
 
+def gitConfigList(key):
+    if not _gitConfig.has_key(key):
+        _gitConfig[key] = read_pipe("git config --get-all %s" % key, ignore_error=True).strip().split(os.linesep)
+    return _gitConfig[key]
+
 def p4BranchesInGit(branchesAreInRemotes = True):
     branches = {}
 
@@ -1455,7 +1460,13 @@ class P4Sync(Command, P4UserMap):
     def getBranchMapping(self):
         lostAndFoundBranches = set()
 
-        for info in p4CmdList("branches"):
+        user = gitConfig("git-p4.branchUser")
+        if len(user) > 0:
+            command = "branches -u %s" % user
+        else:
+            command = "branches"
+
+        for info in p4CmdList(command):
             details = p4Cmd("branch -o %s" % info["branch"])
             viewIdx = 0
             while details.has_key("View%s" % viewIdx):
@@ -1483,6 +1494,25 @@ class P4Sync(Command, P4UserMap):
 
                     if source not in self.knownBranches:
                         lostAndFoundBranches.add(source)
+
+        # Perforce does not strictly require branches to be defined, so we also
+        # check git config for a branch list.
+        #
+        # Example of branch definition in git config file:
+        # [git-p4]
+        #   branchList=main:branchA
+        #   branchList=main:branchB
+        #   branchList=branchA:branchC
+        configBranches = gitConfigList("git-p4.branchList")
+        for branch in configBranches:
+            if branch:
+                (source, destination) = branch.split(":")
+                self.knownBranches[destination] = source
+
+                lostAndFoundBranches.discard(destination)
+
+                if source not in self.knownBranches:
+                    lostAndFoundBranches.add(source)
 
 
         for branch in lostAndFoundBranches:
@@ -1829,12 +1859,14 @@ class P4Sync(Command, P4UserMap):
                     else:
                         paths = []
                         for (prev, cur) in zip(self.previousDepotPaths, depotPaths):
-                            for i in range(0, min(len(cur), len(prev))):
-                                if cur[i] <> prev[i]:
+                            prev_list = prev.split("/")
+                            cur_list = cur.split("/")
+                            for i in range(0, min(len(cur_list), len(prev_list))):
+                                if cur_list[i] <> prev_list[i]:
                                     i = i - 1
                                     break
 
-                            paths.append (cur[:i + 1])
+                            paths.append ("/".join(cur_list[:i + 1]))
 
                         self.previousDepotPaths = paths
 
