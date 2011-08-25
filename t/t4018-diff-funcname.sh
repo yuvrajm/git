@@ -123,11 +123,6 @@ do
 	'
 done
 
-test_expect_success 'default behaviour' '
-	rm -f .gitattributes &&
-	test_expect_funcname "public class Beer\$"
-'
-
 test_expect_success 'set up .gitattributes declaring drivers to test' '
 	cat >.gitattributes <<-\EOF
 	*.java diff=java
