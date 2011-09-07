@@ -237,6 +237,27 @@ static int sideband_demux(int in, int out, void *data)
 	return ret;
 }
 
+static void sign_push_certificate(struct strbuf *cert)
+{
+	/*
+	 * Here, take the contents of cert->buf, and have the user GPG
+	 * sign it, and read it back in the strbuf.
+	 *
+	 * You may want to append some extra info to cert before giving
+	 * it to GPG, possibly via a hook.
+	 *
+	 * Here we upcase them just to demonstrate that the codepath
+	 * is being exercised.
+	 */
+	char *cp;
+	for (cp = cert->buf; *cp; cp++) {
+		int ch = *cp;
+		if ('a' <= ch && ch <= 'z')
+			*cp = toupper(ch);
+	}
+	return;
+}
+
 int send_pack(struct send_pack_args *args,
 	      int fd[], struct child_process *conn,
 	      struct ref *remote_refs,
@@ -250,9 +271,11 @@ int send_pack(struct send_pack_args *args,
 	int allow_deleting_refs = 0;
 	int status_report = 0;
 	int use_sideband = 0;
+	int signed_push = 0;
 	unsigned cmds_sent = 0;
 	int ret;
 	struct async demux;
+	struct strbuf push_cert = STRBUF_INIT;
 
 	/* Does the other end support the reporting? */
 	if (server_supports("report-status"))
@@ -268,6 +291,18 @@ int send_pack(struct send_pack_args *args,
 		fprintf(stderr, "No refs in common and none specified; doing nothing.\n"
 			"Perhaps you should specify a branch such as 'master'.\n");
 		return 0;
+	}
+
+	if (args->signed_push) {
+		if (server_supports("signed-push"))
+			signed_push = !args->dry_run;
+		else
+			warning("The receiving side does not support signed-push");
+	}
+
+	if (signed_push) {
+		strbuf_addstr(&push_cert, "Push-Certificate-Version: 0\n");
+		strbuf_addf(&push_cert, "Pusher: %s\n", git_committer_info(0));
 	}
 
 	/*
@@ -301,15 +336,19 @@ int send_pack(struct send_pack_args *args,
 			char *old_hex = sha1_to_hex(ref->old_sha1);
 			char *new_hex = sha1_to_hex(ref->new_sha1);
 
-			if (!cmds_sent && (status_report || use_sideband)) {
-				packet_buf_write(&req_buf, "%s %s %s%c%s%s",
+			if (!cmds_sent &&
+			    (status_report || use_sideband || signed_push))
+				packet_buf_write(&req_buf, "%s %s %s%c%s%s%s",
 					old_hex, new_hex, ref->name, 0,
 					status_report ? " report-status" : "",
-					use_sideband ? " side-band-64k" : "");
-			}
+					use_sideband ? " side-band-64k" : "",
+					signed_push ? " signed-push" : "");
 			else
 				packet_buf_write(&req_buf, "%s %s %s",
 					old_hex, new_hex, ref->name);
+			if (signed_push)
+				strbuf_addf(&push_cert, "Update: %s %s\n",
+					    new_hex, ref->name);
 			ref->status = status_report ?
 				REF_STATUS_EXPECTING_REPORT :
 				REF_STATUS_OK;
@@ -323,6 +362,23 @@ int send_pack(struct send_pack_args *args,
 			send_sideband(out, -1, req_buf.buf, req_buf.len, LARGE_PACKET_MAX);
 		}
 	} else {
+		safe_write(out, req_buf.buf, req_buf.len);
+		packet_flush(out);
+	}
+
+	if (signed_push && cmds_sent) {
+		char *cp, *ep;
+
+		sign_push_certificate(&push_cert);
+		strbuf_reset(&req_buf);
+		for (cp = push_cert.buf; *cp; cp = ep) {
+			ep = strchrnul(cp, '\n');
+			if (*ep == '\n')
+				ep++;
+			packet_buf_write(&req_buf, "%.*s",
+					 (int)(ep - cp), cp);
+		}
+		/* Do we need anything funky for stateless rpc? */
 		safe_write(out, req_buf.buf, req_buf.len);
 		packet_flush(out);
 	}

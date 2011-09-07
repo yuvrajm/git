@@ -476,6 +476,9 @@ static int set_git_option(struct git_transport_options *opts,
 		else
 			opts->depth = atoi(value);
 		return 0;
+	} else if (!strcmp(name, TRANS_OPT_SIGNED_PUSH)) {
+		opts->signed_push = !!value;
+		return 0;
 	}
 	return 1;
 }
@@ -793,6 +796,7 @@ static int git_transport_push(struct transport *transport, struct ref *remote_re
 	args.progress = transport->progress;
 	args.dry_run = !!(flags & TRANSPORT_PUSH_DRY_RUN);
 	args.porcelain = !!(flags & TRANSPORT_PUSH_PORCELAIN);
+	args.signed_push = !!(flags & TRANSPORT_PUSH_SIGNED);
 
 	ret = send_pack(&args, data->fd, data->conn, remote_refs,
 			&data->extra_have);

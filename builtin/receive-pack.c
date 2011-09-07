@@ -30,12 +30,14 @@ static int receive_unpack_limit = -1;
 static int transfer_unpack_limit = -1;
 static int unpack_limit = 100;
 static int report_status;
+static int signed_push;
 static int use_sideband;
 static int prefer_ofs_delta = 1;
 static int auto_update_server_info;
 static int auto_gc = 1;
 static const char *head_name;
 static int sent_capabilities;
+static char *push_certificate;
 
 static enum deny_action parse_deny_action(const char *var, const char *value)
 {
@@ -114,7 +116,7 @@ static int show_ref(const char *path, const unsigned char *sha1, int flag, void 
 	else
 		packet_write(1, "%s %s%c%s%s\n",
 			     sha1_to_hex(sha1), path, 0,
-			     " report-status delete-refs side-band-64k",
+			     " report-status delete-refs side-band-64k signed-push",
 			     prefer_ofs_delta ? " ofs-delta" : "");
 	sent_capabilities = 1;
 	return 0;
@@ -612,6 +614,31 @@ static void check_aliased_updates(struct command *commands)
 	string_list_clear(&ref_list, 0);
 }
 
+static int record_signed_push(char *cert)
+{
+	/*
+	 * This is the place for you to parse the signed push
+	 * certificate, grab the commit object names the push updates
+	 * refs to, and append the certificate to the notes to these
+	 * commits.
+	 *
+	 * You could also feed the signed push certificate to GPG,
+	 * verify the signer identity, and all the other fun stuff,
+	 * including feeding it to "pre-receive-signature" hook.
+	 *
+	 * Here we just throw it to stderr to demonstrate that the
+	 * codepath is being exercised.
+	 */
+	char *cp, *ep;
+	for (cp = cert; *cp; cp = ep) {
+		ep = strchrnul(cp, '\n');
+		if (*ep == '\n')
+			ep++;
+		fprintf(stderr, "RSP: %.*s", (int)(ep - cp), cp);
+	}
+	return 0;
+}
+
 static void execute_commands(struct command *commands, const char *unpacker_error)
 {
 	struct command *cmd;
@@ -626,6 +653,12 @@ static void execute_commands(struct command *commands, const char *unpacker_erro
 	if (run_receive_hook(commands, pre_receive_hook)) {
 		for (cmd = commands; cmd; cmd = cmd->next)
 			cmd->error_string = "pre-receive hook declined";
+		return;
+	}
+
+	if (push_certificate && record_signed_push(push_certificate)) {
+		for (cmd = commands; cmd; cmd = cmd->next)
+			cmd->error_string = "n/a (push signature error)";
 		return;
 	}
 
@@ -669,6 +702,8 @@ static struct command *read_head_info(void)
 				report_status = 1;
 			if (strstr(refname + reflen + 1, "side-band-64k"))
 				use_sideband = LARGE_PACKET_MAX;
+			if (strstr(refname + reflen + 1, "signed-push"))
+				signed_push = 1;
 		}
 		cmd = xcalloc(1, sizeof(struct command) + len - 80);
 		hashcpy(cmd->old_sha1, old_sha1);
@@ -762,6 +797,21 @@ static const char *unpack(void)
 		}
 		return "index-pack abnormal exit";
 	}
+}
+
+static char *receive_push_certificate(void)
+{
+	struct strbuf cert = STRBUF_INIT;
+	for (;;) {
+		char line[1000];
+		int len;
+
+		len = packet_read_line(0, line, sizeof(line));
+		if (!len)
+			break;
+		strbuf_add(&cert, line, len);
+	}
+	return strbuf_detach(&cert, NULL);
 }
 
 static void report(struct command *commands, const char *unpack_status)
@@ -879,6 +929,8 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 	if ((commands = read_head_info()) != NULL) {
 		const char *unpack_status = NULL;
 
+		if (signed_push)
+			push_certificate = receive_push_certificate();
 		if (!delete_only(commands))
 			unpack_status = unpack();
 		execute_commands(commands, unpack_status);
