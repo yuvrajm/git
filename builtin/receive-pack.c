@@ -303,6 +303,27 @@ static int run_receive_hook(struct command *commands, const char *hook_name)
 	return status;
 }
 
+static int feed_signature_hook(void *state_, const char **bufp, size_t *sizep)
+{
+	const char **cert_p = state_;
+
+	if (!*cert_p)
+		return -1; /* EOF */
+	*bufp = *cert_p;
+	*cert_p = NULL; /* just return once */
+	*sizep = strlen(*bufp);
+	return 0;
+}
+
+static int run_receive_signature_hook(const char *cert)
+{
+	static const char hook[] = "hooks/pre-receive-signature";
+
+	if (!cert)
+		return 0;
+	return run_and_feed_hook(hook, feed_signature_hook, &cert);
+}
+
 static int run_update_hook(struct command *cmd)
 {
 	static const char update_hook[] = "hooks/update";
@@ -642,10 +663,6 @@ static int record_signed_push(char *cert)
 	 * certificate, grab the commit object names the push updates
 	 * refs to, and append the certificate to the notes to these
 	 * commits.
-	 *
-	 * You could also feed the signed push certificate to GPG,
-	 * verify the signer identity, and all the other fun stuff,
-	 * including feeding it to "pre-receive-signature" hook.
 	 */
 	size_t total, payload;
 	char *cp, *ep;
@@ -711,6 +728,12 @@ static void execute_commands(struct command *commands, const char *unpacker_erro
 	if (run_receive_hook(commands, pre_receive_hook)) {
 		for (cmd = commands; cmd; cmd = cmd->next)
 			cmd->error_string = "pre-receive hook declined";
+		return;
+	}
+
+	if (run_receive_signature_hook(push_certificate)) {
+		for (cmd = commands; cmd; cmd = cmd->next)
+			cmd->error_string = "n/a (pre-receive-signature hook declined)";
 		return;
 	}
 
