@@ -8,6 +8,7 @@
 #include "send-pack.h"
 #include "quote.h"
 #include "transport.h"
+#include "gpg-interface.h"
 
 static const char send_pack_usage[] =
 "git send-pack [--all | --mirror] [--dry-run] [--force] [--receive-pack=<git-receive-pack>] [--verbose] [--thin] [<host>:]<directory> [<ref>...]\n"
@@ -237,25 +238,18 @@ static int sideband_demux(int in, int out, void *data)
 	return ret;
 }
 
-static void sign_push_certificate(struct strbuf *cert)
+/*
+ * Take the contents of cert->buf, and have the user GPG sign it, and
+ * read it back in the strbuf.
+ */
+static int sign_push_certificate(struct strbuf *cert)
 {
 	/*
-	 * Here, take the contents of cert->buf, and have the user GPG
-	 * sign it, and read it back in the strbuf.
-	 *
-	 * You may want to append some extra info to cert before giving
-	 * it to GPG, possibly via a hook.
-	 *
-	 * Here we upcase them just to demonstrate that the codepath
-	 * is being exercised.
+	 * You may want to append some extra info to cert before
+	 * giving it to GPG, possibly via a hook, here.
 	 */
-	char *cp;
-	for (cp = cert->buf; *cp; cp++) {
-		int ch = *cp;
-		if ('a' <= ch && ch <= 'z')
-			*cp = toupper(ch);
-	}
-	return;
+
+	return sign_buffer(cert, git_committer_info(IDENT_NO_DATE));
 }
 
 int send_pack(struct send_pack_args *args,
@@ -369,7 +363,8 @@ int send_pack(struct send_pack_args *args,
 	if (signed_push && cmds_sent) {
 		char *cp, *ep;
 
-		sign_push_certificate(&push_cert);
+		if (sign_push_certificate(&push_cert))
+			return error(_("failed to sign push certificate"));
 		strbuf_reset(&req_buf);
 		for (cp = push_cert.buf; *cp; cp = ep) {
 			ep = strchrnul(cp, '\n');
