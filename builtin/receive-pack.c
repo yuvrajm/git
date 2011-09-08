@@ -11,6 +11,11 @@
 #include "transport.h"
 #include "string-list.h"
 #include "sha1-array.h"
+#include "gpg-interface.h"
+#include "notes.h"
+#include "notes-merge.h"
+#include "blob.h"
+#include "tag.h"
 
 static const char receive_pack_usage[] = "git receive-pack <git-dir>";
 
@@ -614,6 +619,22 @@ static void check_aliased_updates(struct command *commands)
 	string_list_clear(&ref_list, 0);
 }
 
+static void get_note_text(struct strbuf *buf, struct notes_tree *t,
+			  const unsigned char *object)
+{
+	const unsigned char *sha1 = get_note(t, object);
+	char *text;
+	unsigned long len;
+	enum object_type type;
+
+	if (!sha1)
+		return;
+	text = read_sha1_file(sha1, &type, &len);
+	if (text && len && type == OBJ_BLOB)
+		strbuf_add(buf, text, len);
+	free(text);
+}
+
 static int record_signed_push(char *cert)
 {
 	/*
@@ -625,18 +646,55 @@ static int record_signed_push(char *cert)
 	 * You could also feed the signed push certificate to GPG,
 	 * verify the signer identity, and all the other fun stuff,
 	 * including feeding it to "pre-receive-signature" hook.
-	 *
-	 * Here we just throw it to stderr to demonstrate that the
-	 * codepath is being exercised.
 	 */
+	size_t total, payload;
 	char *cp, *ep;
-	for (cp = cert; *cp; cp = ep) {
+	int ret = 0;
+	struct notes_tree *t;
+	struct strbuf nbuf = STRBUF_INIT;
+
+	if (!cert)
+		return 0;
+
+	init_notes(NULL, "refs/notes/signed-push", NULL, 0);
+	t = &default_notes_tree;
+
+	total = strlen(cert);
+	payload = parse_signature(cert, total);
+	for (cp = cert; cp < cert + payload; cp = ep) {
+		unsigned char sha1[20], nsha1[20];
+
 		ep = strchrnul(cp, '\n');
 		if (*ep == '\n')
 			ep++;
-		fprintf(stderr, "RSP: %.*s", (int)(ep - cp), cp);
+		if (prefixcmp(cp, "Update: "))
+			continue;
+		cp += strlen("Update: ");
+		if (get_sha1_hex(cp, sha1) || cp[40] != ' ')
+			continue;
+
+		get_note_text(&nbuf, t, sha1);
+		if (nbuf.len)
+			strbuf_addch(&nbuf, '\n');
+		strbuf_add(&nbuf, cert, total);
+		if (write_sha1_file(nbuf.buf, nbuf.len, blob_type, nsha1) ||
+		    add_note(t, sha1, nsha1, NULL))
+			ret = error(_("unable to write note object"));
+		strbuf_reset(&nbuf);
 	}
-	return 0;
+
+	if (!ret) {
+		unsigned char commit[20];
+		unsigned char parent[20];
+		struct ref_lock *lock;
+
+		resolve_ref(t->ref, parent, 0, NULL);
+		lock = lock_any_ref_for_update(t->ref, parent, 0);
+		create_notes_commit(t, NULL, "push", commit);
+		ret = write_ref_sha1(lock, commit, "push");
+	}
+	free_notes(t);
+	return ret;
 }
 
 static void execute_commands(struct command *commands, const char *unpacker_error)
@@ -656,7 +714,7 @@ static void execute_commands(struct command *commands, const char *unpacker_erro
 		return;
 	}
 
-	if (push_certificate && record_signed_push(push_certificate)) {
+	if (record_signed_push(push_certificate)) {
 		for (cmd = commands; cmd; cmd = cmd->next)
 			cmd->error_string = "n/a (push signature error)";
 		return;
