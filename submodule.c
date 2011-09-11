@@ -318,7 +318,7 @@ static int has_remote(const char *refname, const unsigned char *sha1, int flags,
 	return 1;
 }
 
-int submodule_needs_pushing(const char *path, const unsigned char sha1[20], void *data)
+static int submodule_needs_pushing(const char *path, const unsigned char sha1[20], void *data)
 {
 	int *needs_pushing = data;
 
@@ -352,7 +352,7 @@ int submodule_needs_pushing(const char *path, const unsigned char sha1[20], void
 	return 1;
 }
 
-int push_submodule(const char *path, const unsigned char sha1[20], void *data)
+static int push_submodule(const char *path, const unsigned char sha1[20], void *data)
 {
 	if (add_submodule_odb(path) || !lookup_commit_reference(sha1))
 		return 1;
