@@ -24,11 +24,6 @@ struct metadata_cache {
 #define METADATA_CACHE_INIT(name, width, validity) \
 	{ validity, { (name), (width) } }
 
-const void *metadata_cache_lookup(struct metadata_cache *,
-				  const struct object *);
-void metadata_cache_add(struct metadata_cache *, const struct object *,
-			const void *value);
-
 /* Convenience wrappers around metadata_cache_{lookup,add} */
 int metadata_cache_lookup_uint32(struct metadata_cache *,
 				 const struct object *,

@@ -287,8 +287,8 @@ static void *lookup_disk(struct metadata_cache *c,
 	return c->disk_entries + (pos * record_size(c)) + 20;
 }
 
-const void *metadata_cache_lookup(struct metadata_cache *c,
-				  const struct object *obj)
+static const void *metadata_cache_lookup(struct metadata_cache *c,
+					 const struct object *obj)
 {
 	void *r;
 
@@ -300,8 +300,8 @@ const void *metadata_cache_lookup(struct metadata_cache *c,
 	return r;
 }
 
-void metadata_cache_add(struct metadata_cache *c, const struct object *obj,
-			const void *value)
+static void metadata_cache_add(struct metadata_cache *c, const struct object *obj,
+			       const void *value)
 {
 	metadata_cache_init(c);
 	add_decoration_value(&c->mem, obj, value, NULL);
