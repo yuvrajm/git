@@ -171,6 +171,29 @@ static int credential_do(struct credential *c, const char *method,
 	return r;
 }
 
+static int credential_fill_gently(struct credential *c,
+				  const struct string_list *methods)
+{
+	int i;
+
+	if (c->username && c->password)
+		return 0;
+
+	if (!methods)
+		methods = &default_methods;
+
+	if (!methods->nr)
+		return credential_getpass(c);
+
+	for (i = 0; i < methods->nr; i++) {
+		if (!credential_do(c, methods->items[i].string, NULL) &&
+		    c->username && c->password)
+			return 0;
+	}
+
+	return -1;
+}
+
 void credential_fill(struct credential *c, const struct string_list *methods)
 {
 	struct strbuf err = STRBUF_INIT;
@@ -193,29 +216,6 @@ void credential_fill(struct credential *c, const struct string_list *methods)
 			strbuf_addf(&err, "\n  %s", methods->items[i].string);
 	}
 	die("%s", err.buf);
-}
-
-int credential_fill_gently(struct credential *c,
-			   const struct string_list *methods)
-{
-	int i;
-
-	if (c->username && c->password)
-		return 0;
-
-	if (!methods)
-		methods = &default_methods;
-
-	if (!methods->nr)
-		return credential_getpass(c);
-
-	for (i = 0; i < methods->nr; i++) {
-		if (!credential_do(c, methods->items[i].string, NULL) &&
-		    c->username && c->password)
-			return 0;
-	}
-
-	return -1;
 }
 
 void credential_reject(struct credential *c, const struct string_list *methods)
