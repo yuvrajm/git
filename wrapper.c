@@ -236,29 +236,12 @@ int git_mkstemp(char *path, size_t len, const char *template)
 	return mkstemp(path);
 }
 
-/* git_mkstemps() - create tmp file with suffix honoring TMPDIR variable. */
-int git_mkstemps(char *path, size_t len, const char *template, int suffix_len)
-{
-	const char *tmp;
-	size_t n;
-
-	tmp = getenv("TMPDIR");
-	if (!tmp)
-		tmp = "/tmp";
-	n = snprintf(path, len, "%s/%s", tmp, template);
-	if (len <= n) {
-		errno = ENAMETOOLONG;
-		return -1;
-	}
-	return mkstemps(path, suffix_len);
-}
-
 /* Adapted from libiberty's mkstemp.c. */
 
 #undef TMP_MAX
 #define TMP_MAX 16384
 
-int git_mkstemps_mode(char *pattern, int suffix_len, int mode)
+static int git_mkstemps_mode(char *pattern, int suffix_len, int mode)
 {
 	static const char letters[] =
 		"abcdefghijklmnopqrstuvwxyz"
@@ -327,9 +310,26 @@ int git_mkstemp_mode(char *pattern, int mode)
 	return git_mkstemps_mode(pattern, 0, mode);
 }
 
-int gitmkstemps(char *pattern, int suffix_len)
+static int gitmkstemps(char *pattern, int suffix_len)
 {
 	return git_mkstemps_mode(pattern, suffix_len, 0600);
+}
+
+/* git_mkstemps() - create tmp file with suffix honoring TMPDIR variable. */
+int git_mkstemps(char *path, size_t len, const char *template, int suffix_len)
+{
+	const char *tmp;
+	size_t n;
+
+	tmp = getenv("TMPDIR");
+	if (!tmp)
+		tmp = "/tmp";
+	n = snprintf(path, len, "%s/%s", tmp, template);
+	if (len <= n) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	return mkstemps(path, suffix_len);
 }
 
 int xmkstemp_mode(char *template, int mode)
@@ -372,7 +372,7 @@ int unlink_or_warn(const char *file)
 	return warn_if_unremovable("unlink", file, unlink(file));
 }
 
-int rmdir_or_warn(const char *file)
+static int rmdir_or_warn(const char *file)
 {
 	return warn_if_unremovable("rmdir", file, rmdir(file));
 }

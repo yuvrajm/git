@@ -113,7 +113,7 @@ void setup_path(void)
 	strbuf_release(&new_path);
 }
 
-const char **prepare_git_cmd(const char **argv)
+static const char **prepare_git_cmd(const char **argv)
 {
 	int argc;
 	const char **nargv;

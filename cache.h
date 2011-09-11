@@ -710,7 +710,6 @@ int git_mkstemp(char *path, size_t n, const char *template);
 int git_mkstemps(char *path, size_t n, const char *template, int suffix_len);
 
 /* set default permissions by passing mode arguments to open(2) */
-int git_mkstemps_mode(char *pattern, int suffix_len, int mode);
 int git_mkstemp_mode(char *pattern, int mode);
 
 /*
@@ -1150,7 +1149,6 @@ extern void alloc_report(void);
 /* trace.c */
 __attribute__((format (printf, 1, 2)))
 extern void trace_printf(const char *format, ...);
-extern void trace_vprintf(const char *key, const char *format, va_list ap);
 __attribute__((format (printf, 2, 3)))
 extern void trace_argv_printf(const char **argv, const char *format, ...);
 extern void trace_repo_setup(const char *prefix);
