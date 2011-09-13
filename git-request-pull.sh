@@ -71,7 +71,6 @@ git show -s --format='The following changes since commit %H:
 
 are available in the git repository at:' $baserev &&
 echo "  $url $branch" &&
-echo "for you to fetch changes up to $headrev"
 echo &&
 
 git shortlog ^$baserev $headrev &&
