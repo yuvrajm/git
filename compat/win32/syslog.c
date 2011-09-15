@@ -38,7 +38,7 @@ void syslog(int priority, const char *fmt, ...)
 		return;
 	}
 
-	str = malloc(str_len + 1);
+	str = xmalloc(str_len + 1);
 	va_start(ap, fmt);
 	vsnprintf(str, str_len + 1, fmt, ap);
 	va_end(ap);
