@@ -136,6 +136,7 @@ test_expect_success 'usernames can be preserved' '
 	password=three
 	--
 	verbatim: --username=one
+	EOF
 '
 
 test_expect_success 'usernames can be overridden' '

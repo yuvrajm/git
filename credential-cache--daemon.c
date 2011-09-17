@@ -77,7 +77,8 @@ static int check_expirations(void)
 			free(entries[i].item.unique);
 			free(entries[i].item.username);
 			free(entries[i].item.password);
-			memcpy(&entries[i], &entries[entries_nr], sizeof(*entries));
+			if (i != entries_nr)
+				memcpy(&entries[i], &entries[entries_nr], sizeof(*entries));
 			/*
 			 * Stick around 30 seconds in case a new credential
 			 * shows up (e.g., because we just removed a failed
