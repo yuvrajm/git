@@ -295,7 +295,7 @@ int adjust_shared_perm(const char *path)
 const char *make_absolute_path(const char *path)
 {
 	static char bufs[2][PATH_MAX + 1], *buf = bufs[0], *next_buf = bufs[1];
-	char cwd[1024] = "";
+	char cwd[PATH_MAX] = "";
 	int buf_index = 1, len;
 
 	int depth = MAXDEPTH;
