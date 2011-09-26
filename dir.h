@@ -108,5 +108,6 @@ extern int remove_dir_recursively(struct strbuf *path, int flag);
 extern int remove_path(const char *path);
 
 extern int strncmp_icase(const char *a, const char *b, size_t count);
+extern int fnmatch_icase(const char *pattern, const char *string, int flags);
 
 #endif
