@@ -23,7 +23,7 @@ SYNOPSIS
 	   [-A <post-context>] [-B <pre-context>] [-C <context>]
 	   [-f <file>] [-e] <pattern>
 	   [--and|--or|--not|(|)|-e <pattern>...]
-	   [ [--excludes] [--cached | --no-index | --untracked] | <tree>...]
+	   [ [--exclude-standard] [--cached | --no-index | --untracked] | <tree>...]
 	   [--] [<pathspec>...]
 
 DESCRIPTION
@@ -55,11 +55,11 @@ OPTIONS
 	In addition to searching in the tracked files in the working
 	tree, search also in untracked files.
 
---no-excludes::
+--no-exclude-standard::
 	Also search in ignored files by not honoring the `.gitignore`
 	mechanism. Only useful with `--untracked`.
 
---excludes::
+--exclude-standard::
 	Do not pay attention to ignored files specified via the	`.gitignore`
 	mechanism.  Only useful when searching files in the current directory
 	with `--no-index`.

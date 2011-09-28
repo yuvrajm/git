@@ -578,7 +578,7 @@ test_expect_success 'outside of git repository' '
 		export GIT_CEILING_DIRECTORIES &&
 		cd non/git &&
 		test_must_fail git grep o &&
-		git grep --no-index --exclude o >../actual.full &&
+		git grep --no-index --exclude-standard o >../actual.full &&
 		test_cmp ../expect.full ../actual.full &&
 
 		{
@@ -618,7 +618,7 @@ test_expect_success 'inside git repository but with --no-index' '
 		git grep --no-index o >../actual.full &&
 		test_cmp ../expect.full ../actual.full &&
 
-		git grep --no-index --exclude o >../actual.unignored &&
+		git grep --no-index --exclude-standard o >../actual.unignored &&
 		test_cmp ../expect.unignored ../actual.unignored &&
 
 		cd sub &&

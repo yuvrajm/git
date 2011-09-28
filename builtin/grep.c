@@ -781,7 +781,7 @@ int cmd_grep(int argc, const char **argv, const char *prefix)
 			PARSE_OPT_NOARG | PARSE_OPT_NEGHELP },
 		OPT_BOOLEAN(0, "untracked", &untracked,
 			"search in both tracked and untracked files"),
-		OPT_SET_INT(0, "exclude", &opt_exclude,
+		OPT_SET_INT(0, "exclude-standard", &opt_exclude,
 			    "search also in ignored files", 1),
 		OPT_GROUP(""),
 		OPT_BOOLEAN('v', "invert-match", &opt.invert,
