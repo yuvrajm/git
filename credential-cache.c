@@ -155,9 +155,11 @@ int main(int argc, const char **argv)
 	printf("username=%s\n", c.username);
 	printf("password=%s\n", c.password);
 
-	if (do_cache(socket_path, "store", &c, timeout) < 0) {
-		spawn_daemon(socket_path);
-		do_cache(socket_path, "store", &c, timeout);
+	if (c.unique) {
+		if (do_cache(socket_path, "store", &c, timeout) < 0) {
+			spawn_daemon(socket_path);
+			do_cache(socket_path, "store", &c, timeout);
+		}
 	}
 	return 0;
 }
