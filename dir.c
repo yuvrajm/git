@@ -29,7 +29,7 @@ int strncmp_icase(const char *a, const char *b, size_t count)
 	return ignore_case ? strncasecmp(a, b, count) : strncmp(a, b, count);
 }
 
-static int fnmatch_icase(const char *pattern, const char *string, int flags)
+int fnmatch_icase(const char *pattern, const char *string, int flags)
 {
 	return fnmatch(pattern, string, flags | (ignore_case ? FNM_CASEFOLD : 0));
 }
