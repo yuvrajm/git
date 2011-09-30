@@ -61,7 +61,7 @@ static int parse_opt_tag_of_filtered_mode(const struct option *opt,
 	return 0;
 }
 
-static struct decoration idnums;
+static struct decoration idnums = { NULL, sizeof(uint32_t) };
 static uint32_t last_idnum;
 
 static int has_unshown_parent(struct commit *commit)
@@ -75,20 +75,9 @@ static int has_unshown_parent(struct commit *commit)
 	return 0;
 }
 
-/* Since intptr_t is C99, we do not use it here */
-static inline uint32_t *mark_to_ptr(uint32_t mark)
-{
-	return ((uint32_t *)NULL) + mark;
-}
-
-static inline uint32_t ptr_to_mark(void * mark)
-{
-	return (uint32_t *)mark - (uint32_t *)NULL;
-}
-
 static inline void mark_object(struct object *object, uint32_t mark)
 {
-	add_decoration(&idnums, object, mark_to_ptr(mark));
+	add_decoration_value(&idnums, object, &mark, NULL);
 }
 
 static inline void mark_next_object(struct object *object)
@@ -98,10 +87,10 @@ static inline void mark_next_object(struct object *object)
 
 static int get_object_mark(struct object *object)
 {
-	void *decoration = lookup_decoration(&idnums, object);
-	if (!decoration)
+	uint32_t *mark = lookup_decoration_value(&idnums, object);
+	if (!mark)
 		return 0;
-	return ptr_to_mark(decoration);
+	return *mark;
 }
 
 static void show_progress(void)
@@ -555,8 +544,6 @@ static void handle_tags_and_duplicates(struct string_list *extra_refs)
 static void export_marks(char *file)
 {
 	unsigned int i;
-	uint32_t mark;
-	struct object_decoration *deco = idnums.hash;
 	FILE *f;
 	int e = 0;
 
@@ -565,15 +552,15 @@ static void export_marks(char *file)
 		die_errno("Unable to open marks file %s for writing.", file);
 
 	for (i = 0; i < idnums.size; i++) {
+		struct object_decoration *deco = decoration_slot(&idnums, i);
 		if (deco->base && deco->base->type == 1) {
-			mark = ptr_to_mark(deco->decoration);
-			if (fprintf(f, ":%"PRIu32" %s\n", mark,
+			uint32_t *mark = (uint32_t *)deco->decoration;
+			if (fprintf(f, ":%"PRIu32" %s\n", *mark,
 				sha1_to_hex(deco->base->sha1)) < 0) {
 			    e = 1;
 			    break;
 			}
 		}
-		deco++;
 	}
 
 	e |= ferror(f);

@@ -184,4 +184,8 @@ extern int commit_tree(const char *msg, unsigned char *tree,
 		struct commit_list *parents, unsigned char *ret,
 		const char *author);
 
+unsigned long commit_generation(const struct commit *commit);
+
+void commit_graft_validity(git_SHA_CTX *ctx);
+
 #endif /* COMMIT_H */

@@ -1,0 +1,137 @@
+Metadata Cache API
+================
+
+The metadata cache API is meant to store a cache of per-object values.
+The aim is for robustness, speed, and simplicity. The stored data must
+be of a fixed size, and the only operations allowed are insertion and
+retrieval with a struct object as the key.
+
+This API is similar to the decorate API, but provides persistence of
+values across multiple invocations. It is also similar to the
+notes-cache API, but is much lighter weight and suitable for storing
+small values. If you are storing large, arbitrary data, consider using
+notes-cache.
+
+
+Storage
+-------
+
+Values are stored both on-disk and in-memory. Newly added values are
+initially stored in a hash table in memory, and written to disk
+automatically on program exit.
+
+The disk storage consists of a single file per cache, located in the
+`$GIT_DIR/cache` directory. See "File Format" below.
+
+When the cache is written to disk, the contents of the in-memory data
+and the disk data are merged, with in-memory values taking precedence
+over disk values. The data is written to a temporary file and atomically
+renamed into the new cache file. Thus there is no lock contention
+between competing processes on either reading or writing (though one
+process's updates may be lost).
+
+
+File Format
+-----------
+
+Cache files begin with a 32-byte header, consisting of:
+
+  - a 4-byte magic token, {'M', 'T', 'A', 'C' }.
+
+  - a 32-bit unsigned integer in network byte-order, indicating the
+    file format version; this document describes version 1.
+
+  - a 32-bit unsigned integer in network byte-order, indicating the
+    width in bytes of single stored data value.
+
+  - a 20-byte sequence indicating the "validity" of the cache; the
+    exact meaning of this value is specific to the type of cache. See
+    the section on "Validity" below.
+
+After the header, the file contains a sequence of key-value pairs, with
+no delimiters. The "key" of each pair is a 20-byte binary sha1. The
+value is a sequence of bytes of length `W`, where `W` is the width
+specified in the header.
+
+
+Cache Validity
+--------------
+
+The contents of a cache file may be valid only under a specific set of
+circumstances. The file header contains a 20-byte validity token which
+can be checked to ensure that the cache data is still valid. The data
+that goes into each token is specific to the type of cache. For example,
+a cache that summarizes information on the history graph would be valid
+only under a specific set of grafts and replace refs.
+
+
+Speed
+-----
+
+Lookup in the cache requires `O(lg(n))` hash comparisons (via binary
+search of the disk contents, or the in-memory hash table).
+
+Insertion into the cache is amortized `O(1)` via the hash table. Writing
+the cache to disk entails `O(n*lg(n) + m)` hash comparisons, where `m`
+is the number of existing disk entries and `n` is the number of newly
+added entries.
+
+
+Data Structures
+---------------
+
+`struct metadata_cache`::
+
+	This structure represents a single metadata cache (i.e., mapping
+	each object to a single fixed-size value). The cache should be
+	allocated in static storage and initialized using the
+	`METADATA_CACHE_INIT` macro. The lookup code will lazily open the
+	on-disk cache as necessary, and any values written by
+	`metadata_cache_add` will be automatically written to disk at
+	program exit.
++
+	The structure should be considered opaque by calling code.
+
+
+Functions
+---------
+
+`METADATA_CACHE_INIT`::
+
+	Static initializer for a metadata cache. The `name` parameter
+	specifies a human-readable name which will be used for storage
+	in `$GIT_DIR/cache/$name`. The `width` parameter specifies the
+	size, in units of `char`, of the data to be stored (e.g., use
+	`sizeof(uint32_t)` to store 32-bit integers). The `validity`
+	parameter is either NULL or a pointer to a function providing a
+	20-byte validity sha1.
+
+`metadata_cache_lookup`::
+
+	Retrieve a value from the object cache. A void pointer to the
+	stored value will be returned, or `NULL` if there is no value.
+
+`metadata_cache_add`::
+
+	Store a value in the object cache. The value pointer should
+	point to exactly `width` bytes of data.
+
+`metadata_cache_lookup_uint32`::
+
+	Convenience wrapper for retrieving unsigned 32-bit integers. The
+	value will be returned via the `value` pointer. The return value
+	is `0` if a value was found, or negative otherwise (in which
+	case the contents of `value` will be unchanged).
+
+`metadata_cache_add_uint32`::
+
+	Convenience wrapper for storing unsigned 32-bit integers. Note
+	that integers are stored on disk in network-byte order, so it is
+	safe to access caches from any architecture.
+
+`metadata_graph_validity`::
+
+	This function is intended to be used with `METADATA_CACHE_INIT`
+	as a validity function. It returns a SHA1 summarizing the
+	current state of any commit grafts and replace objects that
+	would affect the shape of the history graph.

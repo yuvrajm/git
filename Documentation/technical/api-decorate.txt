@@ -1,6 +1,169 @@
 decorate API
 ============
 
-Talk about <decorate.h>
+The decorate API is a system for efficiently mapping objects to values
+in memory. It is slightly slower than an actual member of an object
+struct (because it incurs a hash lookup), but it uses less memory when
+the mapping is not in use, or when the number of decorated objects is
+small compared to the total number of objects.
 
-(Linus)
+For efficiency, the mapping is capable of storing actual byte values, as
+long as the byte values for each element are of a fixed size. So one
+could, for example, map objects into 32-bit integers. For ease of use,
+functions are provided for storing the values of arbitrary pointers,
+which can point to strings or structs.
+
+Note that the decorate API only stores the mapping in memory. See the
+metadata-cache API for persistent storage.
+
+Data Structures
+---------------
+
+`struct decoration`::
+
+	This structure represents a single mapping of objects to
+	values. Its fields are:
+
+	`name`:::
+		This field is not used by the decorate API itself, but
+		may be used by calling code.
+
+	`width`:::
+		This field specifies the width (in units of `char`) of
+		the values to be stored. This field must be set to its
+		final value when the decoration struct is initialized.
+		A width of `0` is equivalent to `sizeof(void *)`.
+
+	`nr`:::
+		The number of objects currently mapped by the
+		decoration.
+
+	`size`:::
+		The number of hash slots allocated; this is kept to at
+		least 3/2 of the number of actual slots used, to keep
+		the hash sparse.
+
+	`hash`:::
+		A pointer to an array of actual `object_decoration`
+		structs. Note that because the width of `struct
+		object_decoration` is not known until runtime, this
+		array is stored with type `unsigned char *`. To access
+		individual items, one must perform pointer arithmetic;
+		see the `decoration_by_offset` function below.
+
+`struct object_decoration`::
+
+	A structure representing the decoration of a single object.
+	Callers will not normally need to use this object unless they
+	are iterating all elements in the decoration hash. The `base`
+	field points to the object being mapped (or `NULL` if it is
+	an empty hash slot). The `decoration` field stores the mapped
+	value as a sequence of bytes; use the `width` field in `struct
+	decoration` to know the exact size.
+
+
+Functions
+---------
+
+`add_decoration_value`::
+
+	Add a mapping from an object to a sequence of bytes. The number
+	of bytes pointed to by `decoration` should be equal to the
+	`width` field of the `struct decoration`. If the `old` parameter
+	is not NULL and a there was already a value for the object, the
+	bytes of the old value are copied into `old`.  The return value
+	is `1` if there was a previous value, or `0` otherwise. Note
+	that if there is no previous value, then `old` is left
+	untouched; it is the responsibility of the caller to either
+	check the return value or to set a sentinel value in `old`.
+
+`lookup_decoration_value`::
+
+	Retrieve a decoration from the mapping. The return value is a
+	pointer to the sequence of bytes representing the value (of
+	length `width`), or `NULL` if no value is found.
+
+`add_decoration`::
+
+	Add a mapping from an object to a void pointer. If a previous
+	pointer exists for the object, it is returned; otherwise, `NULL`
+	is returned.
+
+`lookup_decoration`::
+
+	Retrieve a void pointer from the mapping. The return value is
+	the stored pointer, or `NULL` if there is no stored pointer.
+
+`decoration_slot`::
+
+	Retrieve the decoration stored at slot `i` in the hash table.
+	If the `base` field of the returned `struct object_decoration`
+	is `NULL`, then no value is stored at that slot. This function
+	is useful when iterating over the entire contents of the hash
+	table. See the iteration example below.
+
+
+Examples
+--------
+
+Store and retrieve pointers to structs:
+
+-------------------------------------------------------------------
+/* no need to set width parameter; it defaults to sizeof(void *) */
+static struct decoration commit_foos;
+
+void store_foo(const struct commit *c, const char *name)
+{
+	struct foo *value = alloc_foo(name);
+	struct foo *old;
+
+	old = add_decoration(&commit_foos, c->object, value);
+	free(old);
+}
+
+const struct foo *get_foo(const struct commit *c)
+{
+	return lookup_decoration(&commit_foos, c->object);
+}
+-------------------------------------------------------------------
+
+Store and retrieve `unsigned long` integers:
+
+-------------------------------------------------------------------
+static struct decoration longs = { "my longs", sizeof(unsigned long) };
+
+void store_long(const struct object *obj, unsigned long value)
+{
+	unsigned long old;
+	if (add_decoration_value(&longs, obj, &value, &old)
+		printf("old value was %lu\n", old);
+}
+
+void print_long(const struct object *obj)
+{
+	unsigned long *value = lookup_decoration_value(&longs, obj);
+	if (!value)
+		printf("no value\n");
+	else
+		printf("value is %lu\n", *value);
+}
+-------------------------------------------------------------------
+
+Iterate over all stored decorations:
+
+-------------------------------------------------------------------
+void dump_longs(void)
+{
+	int i;
+	for (i = 0; i < longs.size; i++) {
+		struct object_decoration *e = decoration_slot(&longs, i);
+		unsigned long *value = (unsigned long *)e->decoration;
+
+		/* empty hash slot */
+		if (!e->base)
+			continue;
+
+		printf("%s -> %lu\n", sha1_to_hex(e->base->sha1), *value);
+	}
+}
+-------------------------------------------------------------------

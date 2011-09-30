@@ -965,6 +965,9 @@ static size_t format_commit_one(struct strbuf *sb, const char *placeholder,
 			return 2;
 		}
 		return 0;	/* unknown %g placeholder */
+	case 'G':
+		strbuf_addf(sb, "%lu", commit_generation(commit));
+		return 1;
 	case 'N':
 		if (c->pretty_ctx->show_notes) {
 			format_display_notes(commit->object.sha1, sb,

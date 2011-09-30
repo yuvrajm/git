@@ -115,3 +115,18 @@ const unsigned char *do_lookup_replace_object(const unsigned char *sha1)
 
 	return cur;
 }
+
+void replace_object_validity(git_SHA_CTX *ctx)
+{
+	int i;
+
+	if (!read_replace_refs)
+		return;
+
+	prepare_replace_object();
+
+	for (i = 0; i < replace_object_nr; i++) {
+		git_SHA1_Update(ctx, replace_object[i]->sha1[0], 20);
+		git_SHA1_Update(ctx, replace_object[i]->sha1[1], 20);
+	}
+}

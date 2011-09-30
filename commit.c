@@ -6,6 +6,7 @@
 #include "diff.h"
 #include "revision.h"
 #include "notes.h"
+#include "metadata-cache.h"
 
 int save_commit_buffer = 1;
 
@@ -245,6 +246,27 @@ int unregister_shallow(const unsigned char *sha1)
 				* (commit_graft_nr - pos - 1));
 	commit_graft_nr--;
 	return 0;
+}
+
+void commit_graft_validity(git_SHA_CTX *ctx)
+{
+	int i;
+
+	prepare_commit_graft();
+
+	for (i = 0; i < commit_graft_nr; i++) {
+		const struct commit_graft *c = commit_graft[i];
+		git_SHA1_Update(ctx, c->sha1, 20);
+		if (c->nr_parent < 0)
+			git_SHA1_Update(ctx, "shallow", 7);
+		else {
+			uint32_t v = htonl(c->nr_parent);
+			int j;
+			git_SHA1_Update(ctx, &v, sizeof(v));
+			for (j = 0; j < c->nr_parent; j++)
+				git_SHA1_Update(ctx, c->parent[j], 20);
+		}
+	}
 }
 
 int parse_commit_buffer(struct commit *item, const void *buffer, unsigned long size)
@@ -879,4 +901,40 @@ int commit_tree(const char *msg, unsigned char *tree,
 	result = write_sha1_file(buffer.buf, buffer.len, commit_type, ret);
 	strbuf_release(&buffer);
 	return result;
+}
+
+static struct metadata_cache generations =
+	METADATA_CACHE_INIT("generations", sizeof(uint32_t),
+			    metadata_graph_validity);
+
+static unsigned long commit_generation_recurse(struct commit *c)
+{
+	struct commit_list *p;
+	uint32_t r;
+
+	if (!metadata_cache_lookup_uint32(&generations, &c->object, &r))
+		return r;
+
+	if (parse_commit(c) < 0)
+		die("unable to parse commit: %s", sha1_to_hex(c->object.sha1));
+
+	if (!c->parents)
+		return 0;
+
+	r = 0;
+	for (p = c->parents; p; p = p->next) {
+		unsigned long pgen = commit_generation_recurse(p->item);
+		if (pgen > r)
+			r = pgen;
+	}
+	r++;
+
+	metadata_cache_add_uint32(&generations, &c->object, r);
+	return r;
+}
+
+unsigned long commit_generation(const struct commit *commit)
+{
+	/* drop const because we may call parse_commit */
+	return commit_generation_recurse((struct commit *)commit);
 }

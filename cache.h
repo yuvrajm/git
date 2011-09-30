@@ -764,6 +764,8 @@ static inline const unsigned char *lookup_replace_object(const unsigned char *sh
 	return do_lookup_replace_object(sha1);
 }
 
+extern void replace_object_validity(git_SHA_CTX *ctx);
+
 /* Read and unpack a sha1 file into memory, write memory to a sha1 file */
 extern int sha1_object_info(const unsigned char *, unsigned long *);
 extern int hash_sha1_file(const void *buf, unsigned long len, const char *type, unsigned char *sha1);
