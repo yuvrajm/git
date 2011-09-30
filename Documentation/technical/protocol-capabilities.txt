@@ -21,8 +21,11 @@ NOT advertise capabilities it does not understand.
 The 'report-status' and 'delete-refs' capabilities are sent and
 recognized by the receive-pack (push to server) process.
 
-The 'ofs-delta' capability is sent and recognized by both upload-pack
-and receive-pack protocols.
+Any 'limit-*' capabilities may only be sent by the receive-pack
+process. It is never requested by client.
+
+The 'side-band-64k' and 'ofs-delta' capabilities are sent and
+recognized by both upload-pack and receive-pack protocols.
 
 All other capabilities are only recognized by the upload-pack (fetch
 from server) process.
@@ -185,3 +188,25 @@ it is capable of accepting a zero-id value as the target
 value of a reference update.  It is not sent back by the client, it
 simply informs the client that it can be sent zero-id values
 to delete references.
+
+limit-*
+-------
+
+If the server sends one or more capabilities that start with "limit-",
+it means that there are certain limits to what kind of pack the server
+will receive. More specifically, these capabilities must be of the form
+"limit-<what>=<num>" where "<what>" (a sequence of lower-case letters,
+digits and "-") describes which property of the pack is limited, and
+"<num>" (a sequence of decimal digits) specifies the limit value.
+Capabilities of this type are not sent back by the client; instead the
+client must verify that the created packfile does not exceed the given
+limits. This check should happen prior to transferring the packfile to
+the server. If the check fails, the client must abort the upload, and
+report the reason for the aborted push back to the user.
+The following "limit-*" capabilites are recognized:
+
+ - limit-pack-size=<num>    (Maximum size (in bytes) of uploaded pack)
+ - limit-commit-count=<num> (Maximum number of commits in a pack)
+
+More "limit-*" capabilities may be added in the future. The client
+is free to ignore any "limit-*" capabilities it does not understand.

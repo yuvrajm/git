@@ -49,9 +49,12 @@ static int pack_objects(int fd, struct ref *refs, struct extra_have_objects *ext
 		NULL,
 		NULL,
 		NULL,
+		NULL,
+		NULL,
 	};
 	struct child_process po;
 	int i;
+	char buf1[40], buf2[40];
 
 	i = 4;
 	if (args->use_thin_pack)
@@ -62,6 +65,16 @@ static int pack_objects(int fd, struct ref *refs, struct extra_have_objects *ext
 		argv[i++] = "-q";
 	if (args->progress)
 		argv[i++] = "--progress";
+	if (args->max_pack_size > 0) {
+		snprintf(buf1, sizeof(buf1), "--max-pack-size=%lu",
+			 args->max_pack_size);
+		argv[i++] = buf1;
+	}
+	if (args->max_commit_count > 0) {
+		snprintf(buf2, sizeof(buf2), "--max-commit-count=%lu",
+			 args->max_commit_count);
+		argv[i++] = buf2;
+	}
 	memset(&po, 0, sizeof(po));
 	po.argv = argv;
 	po.in = -1;
@@ -251,8 +264,9 @@ int send_pack(struct send_pack_args *args,
 	int status_report = 0;
 	int use_sideband = 0;
 	unsigned cmds_sent = 0;
-	int ret;
+	int ret = 0;
 	struct async demux;
+	const char *p;
 
 	/* Does the other end support the reporting? */
 	if (server_supports("report-status"))
@@ -263,6 +277,10 @@ int send_pack(struct send_pack_args *args,
 		args->use_ofs_delta = 1;
 	if (server_supports("side-band-64k"))
 		use_sideband = 1;
+	if ((p = server_supports("limit-pack-size=")))
+		args->max_pack_size = strtoul(p, NULL, 10);
+	if ((p = server_supports("limit-commit-count=")))
+		args->max_commit_count = strtoul(p, NULL, 10);
 
 	if (!remote_refs) {
 		fprintf(stderr, "No refs in common and none specified; doing nothing.\n"
@@ -339,25 +357,18 @@ int send_pack(struct send_pack_args *args,
 	}
 
 	if (new_refs && cmds_sent) {
-		if (pack_objects(out, remote_refs, extra_have, args) < 0) {
-			for (ref = remote_refs; ref; ref = ref->next)
-				ref->status = REF_STATUS_NONE;
+		if ((ret = pack_objects(out, remote_refs, extra_have, args))) {
 			if (args->stateless_rpc)
 				close(out);
 			if (git_connection_is_socket(conn))
 				shutdown(fd[0], SHUT_WR);
-			if (use_sideband)
-				finish_async(&demux);
-			return -1;
 		}
 	}
 	if (args->stateless_rpc && cmds_sent)
 		packet_flush(out);
 
 	if (status_report && cmds_sent)
-		ret = receive_status(in, remote_refs);
-	else
-		ret = 0;
+		ret |= receive_status(in, remote_refs);
 	if (args->stateless_rpc)
 		packet_flush(out);
 

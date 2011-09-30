@@ -12,6 +12,8 @@ struct send_pack_args {
 		use_ofs_delta:1,
 		dry_run:1,
 		stateless_rpc:1;
+	unsigned long max_pack_size;
+	unsigned long max_commit_count;
 };
 
 int send_pack(struct send_pack_args *args,

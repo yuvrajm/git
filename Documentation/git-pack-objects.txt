@@ -112,6 +112,17 @@ base-name::
 	If specified,  multiple packfiles may be created.
 	The default is unlimited, unless the config variable
 	`pack.packSizeLimit` is set.
++
+When used together with --stdout, the command will fail with an error
+message if the pack output exceeds the given limit.
+
+--max-commit-count=<n>::
+	This option is only useful together with --stdout.
+	Specifies the maximum number of commits allowed in the created
+	pack. If the number of commits would exceed the given limit,
+	pack-objects will fail with an error message.
+	The number can be suffixed with "k", "m", or "g".
+	The default is unlimited.
 
 --honor-pack-keep::
 	This flag causes an object already in a local pack that

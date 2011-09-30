@@ -8,6 +8,7 @@
 #include "url.h"
 
 static char *server_capabilities;
+static size_t server_capabilities_len;
 
 static int check_ref(const char *name, int len, unsigned int flags)
 {
@@ -80,8 +81,16 @@ struct ref **get_remote_heads(int in, struct ref **list,
 
 		name_len = strlen(name);
 		if (len != name_len + 41) {
+			char *p;
 			free(server_capabilities);
 			server_capabilities = xstrdup(name + name_len + 1);
+			server_capabilities_len = strlen(server_capabilities);
+			/* split capabilities on SP */
+			for (p = server_capabilities;
+			     p < server_capabilities + server_capabilities_len;
+			     p++)
+				if (*p == ' ')
+					*p = '\0';
 		}
 
 		if (extra_have &&
@@ -102,10 +111,25 @@ struct ref **get_remote_heads(int in, struct ref **list,
 	return list;
 }
 
-int server_supports(const char *feature)
+const char *server_supports(const char *feature)
 {
-	return server_capabilities &&
-		strstr(server_capabilities, feature) != NULL;
+	const char *p = server_capabilities;
+	size_t feature_len = strlen(feature);
+	int need_value = feature[feature_len - 1] == '=';
+
+	if (!server_capabilities)
+		return NULL;
+
+	for (p = server_capabilities;
+	     p < server_capabilities + server_capabilities_len;
+	     p += strlen(p) + 1) {
+		if (need_value) {
+			if (!strncmp(p, feature, feature_len))
+				return p + feature_len;
+		} else if (!strcmp(p, feature))
+			return p;
+	}
+	return NULL;
 }
 
 int path_match(const char *path, int nr, char **match)

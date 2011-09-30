@@ -31,6 +31,7 @@ static int transfer_fsck_objects = -1;
 static int receive_unpack_limit = -1;
 static int transfer_unpack_limit = -1;
 static int unpack_limit = 100;
+static unsigned long limit_pack_size, limit_commit_count, limit_object_count;
 static int report_status;
 static int use_sideband;
 static int prefer_ofs_delta = 1;
@@ -76,6 +77,21 @@ static int receive_pack_config(const char *var, const char *value, void *cb)
 		return 0;
 	}
 
+	if (strcmp(var, "receive.packsizelimit") == 0) {
+		limit_pack_size = git_config_ulong(var, value);
+		return 0;
+	}
+
+	if (strcmp(var, "receive.commitcountlimit") == 0) {
+		limit_commit_count = git_config_ulong(var, value);
+		return 0;
+	}
+
+	if (strcmp(var, "receive.objectcountlimit") == 0) {
+		limit_object_count = git_config_ulong(var, value);
+		return 0;
+	}
+
 	if (strcmp(var, "receive.fsckobjects") == 0) {
 		receive_fsck_objects = git_config_bool(var, value);
 		return 0;
@@ -114,15 +130,29 @@ static int receive_pack_config(const char *var, const char *value, void *cb)
 	return git_default_config(var, value, cb);
 }
 
+static const char *capabilities(void)
+{
+	static char buf[1024];
+	int ret = snprintf(buf, sizeof(buf),
+			   " report-status delete-refs side-band-64k%s",
+			   prefer_ofs_delta ? " ofs-delta" : "");
+	if (limit_pack_size > 0)
+		ret += snprintf(buf + ret, sizeof(buf) - ret,
+				" limit-pack-size=%lu", limit_pack_size);
+	if (limit_commit_count > 0)
+		ret += snprintf(buf + ret, sizeof(buf) - ret,
+				" limit-commit-count=%lu", limit_commit_count);
+	assert(ret < sizeof(buf));
+	return buf;
+}
+
 static int show_ref(const char *path, const unsigned char *sha1, int flag, void *cb_data)
 {
 	if (sent_capabilities)
 		packet_write(1, "%s %s\n", sha1_to_hex(sha1), path);
 	else
-		packet_write(1, "%s %s%c%s%s\n",
-			     sha1_to_hex(sha1), path, 0,
-			     " report-status delete-refs side-band-64k",
-			     prefer_ofs_delta ? " ofs-delta" : "");
+		packet_write(1, "%s %s%c%s\n",
+			     sha1_to_hex(sha1), path, 0, capabilities());
 	sent_capabilities = 1;
 	return 0;
 }
@@ -779,7 +809,9 @@ static const char *unpack(void)
 			"--pack_header=%"PRIu32",%"PRIu32,
 			ntohl(hdr.hdr_version), ntohl(hdr.hdr_entries));
 
-	if (ntohl(hdr.hdr_entries) < unpack_limit) {
+	if (limit_object_count > 0 && ntohl(hdr.hdr_entries) > limit_object_count)
+		return "received pack exceeds configured receive.objectCountLimit";
+	else if (ntohl(hdr.hdr_entries) < unpack_limit) {
 		int code, i = 0;
 		const char *unpacker[4];
 		unpacker[i++] = "unpack-objects";

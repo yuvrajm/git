@@ -222,4 +222,175 @@ test_expect_success 'deny pushing to delete current branch' '
 	)
 '
 
+echo "0000" > pkt-flush
+
+test_expect_success 'verify that limit-commit-count capability is not advertised by default' '
+	rewound_push_setup &&
+	(
+	    cd parent &&
+	    test_might_fail git receive-pack . <../pkt-flush >output &&
+	    test_must_fail grep -q "limit-commit-count" output
+	)
+'
+
+test_expect_success 'verify that receive.commitCountLimit triggers limit-commit-count capability' '
+	(
+	    cd parent &&
+	    git config receive.commitCountLimit 1 &&
+	    test_might_fail git receive-pack . <../pkt-flush >output &&
+	    grep -q "limit-commit-count=1" output
+	)
+'
+
+test_expect_success 'deny pushing when receive.commitCountLimit is exceeded' '
+	(
+	    cd child &&
+	    git reset --hard origin/master &&
+	    echo three > file && git commit -a -m three &&
+	    echo four > file && git commit -a -m four &&
+	    test_must_fail git send-pack ../parent master 2>errs &&
+	    grep -q "commit count limit" errs
+	) &&
+	parent_head=$(cd parent && git rev-parse --verify master) &&
+	child_head=$(cd child && git rev-parse --verify master) &&
+	test "$parent_head" != "$child_head"
+'
+
+test_expect_success 'repeated push failure proves that objects were not stored remotely' '
+	(
+	    cd child &&
+	    test_must_fail git send-pack ../parent master 2>errs &&
+	    grep -q "commit count limit" errs
+	) &&
+	parent_head=$(cd parent && git rev-parse --verify master) &&
+	child_head=$(cd child && git rev-parse --verify master) &&
+	test "$parent_head" != "$child_head"
+'
+
+test_expect_success 'increase receive.commitCountLimit' '
+	(
+	    cd parent &&
+	    git config receive.commitCountLimit 2 &&
+	    test_might_fail git receive-pack . <../pkt-flush >output &&
+	    grep -q "limit-commit-count=2" output
+	)
+'
+
+test_expect_success 'push is allowed when commit limit is not exceeded' '
+	(
+	    cd child &&
+	    git send-pack ../parent master 2>errs &&
+	    test_must_fail grep -q "commit count limit" errs
+	) &&
+	parent_head=$(cd parent && git rev-parse --verify master) &&
+	child_head=$(cd child && git rev-parse --verify master) &&
+	test "$parent_head" = "$child_head"
+'
+
+test_expect_success 'verify that limit-pack-size capability is not advertised by default' '
+	rewound_push_setup &&
+	(
+	    cd parent &&
+	    test_might_fail git receive-pack . <../pkt-flush >output &&
+	    test_must_fail grep -q "limit-pack-size" output
+	)
+'
+
+test_expect_success 'verify that receive.packSizeLimit triggers limit-pack-size capability' '
+	(
+	    cd parent &&
+	    git config receive.packSizeLimit 10 &&
+	    test_might_fail git receive-pack . <../pkt-flush >output &&
+	    grep -q "limit-pack-size=10" output
+	)
+'
+
+test_expect_success 'deny pushing when receive.packSizeLimit is exceeded' '
+	(
+	    cd child &&
+	    git reset --hard origin/master &&
+	    echo three > file && git commit -a -m three &&
+	    test_must_fail git send-pack ../parent master 2>errs &&
+	    grep -q "pack size limit" errs
+	) &&
+	parent_head=$(cd parent && git rev-parse --verify master) &&
+	child_head=$(cd child && git rev-parse --verify master) &&
+	test "$parent_head" != "$child_head"
+'
+
+test_expect_success 'repeated push failure proves that objects were not stored remotely' '
+	(
+	    cd child &&
+	    test_must_fail git send-pack ../parent master 2>errs &&
+	    grep -q "pack size limit" errs
+	) &&
+	parent_head=$(cd parent && git rev-parse --verify master) &&
+	child_head=$(cd child && git rev-parse --verify master) &&
+	test "$parent_head" != "$child_head"
+'
+
+test_expect_success 'increase receive.packSizeLimit' '
+	(
+	    cd parent &&
+	    git config receive.packSizeLimit 1000000 &&
+	    test_might_fail git receive-pack . <../pkt-flush >output &&
+	    grep -q "limit-pack-size=1000000" output
+	)
+'
+
+test_expect_success 'push is allowed when pack size is not exceeded' '
+	(
+	    cd child &&
+	    git send-pack ../parent master 2>errs &&
+	    test_must_fail grep -q "pack size limit" errs
+	) &&
+	parent_head=$(cd parent && git rev-parse --verify master) &&
+	child_head=$(cd child && git rev-parse --verify master) &&
+	test "$parent_head" = "$child_head"
+'
+
+test_expect_success 'deny pushing when receive.objectCountLimit is exceeded' '
+	rewound_push_setup &&
+	(
+	    cd parent &&
+	    git config receive.objectCountLimit 1
+	) &&
+	(
+	    cd child &&
+	    git reset --hard origin/master &&
+	    echo three > file && git commit -a -m three &&
+	    test_must_fail git send-pack ../parent master 2>errs &&
+	    grep -q "receive\\.objectCountLimit" errs
+	) &&
+	parent_head=$(cd parent && git rev-parse --verify master) &&
+	child_head=$(cd child && git rev-parse --verify master) &&
+	test "$parent_head" != "$child_head"
+'
+
+test_expect_success 'repeated push failure proves that objects were not stored remotely' '
+	(
+	    cd child &&
+	    test_must_fail git send-pack ../parent master 2>errs &&
+	    grep -q "receive\\.objectCountLimit" errs
+	) &&
+	parent_head=$(cd parent && git rev-parse --verify master) &&
+	child_head=$(cd child && git rev-parse --verify master) &&
+	test "$parent_head" != "$child_head"
+'
+
+test_expect_success 'push is allowed when object limit is increased' '
+	(
+	    cd parent &&
+	    git config receive.objectCountLimit 10
+	) &&
+	(
+	    cd child &&
+	    git send-pack ../parent master 2>errs &&
+	    test_must_fail grep -q "receive\\.objectCountLimit" errs
+	) &&
+	parent_head=$(cd parent && git rev-parse --verify master) &&
+	child_head=$(cd child && git rev-parse --verify master) &&
+	test "$parent_head" = "$child_head"
+'
+
 test_done
