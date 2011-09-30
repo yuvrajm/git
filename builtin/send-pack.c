@@ -8,6 +8,7 @@
 #include "send-pack.h"
 #include "quote.h"
 #include "transport.h"
+#include "gpg-interface.h"
 
 static const char send_pack_usage[] =
 "git send-pack [--all | --mirror] [--dry-run] [--force] [--receive-pack=<git-receive-pack>] [--verbose] [--thin] [<host>:]<directory> [<ref>...]\n"
@@ -250,6 +251,20 @@ static int sideband_demux(int in, int out, void *data)
 	return ret;
 }
 
+/*
+ * Take the contents of cert->buf, and have the user GPG sign it, and
+ * read it back in the strbuf.
+ */
+static int sign_push_certificate(struct strbuf *cert)
+{
+	/*
+	 * You may want to append some extra info to cert before
+	 * giving it to GPG, possibly via a hook, here.
+	 */
+
+	return sign_buffer(cert, git_committer_info(IDENT_NO_DATE));
+}
+
 int send_pack(struct send_pack_args *args,
 	      int fd[], struct child_process *conn,
 	      struct ref *remote_refs,
@@ -263,10 +278,12 @@ int send_pack(struct send_pack_args *args,
 	int allow_deleting_refs = 0;
 	int status_report = 0;
 	int use_sideband = 0;
+	int signed_push = 0;
 	unsigned cmds_sent = 0;
 	int ret = 0;
 	struct async demux;
 	const char *p;
+	struct strbuf push_cert = STRBUF_INIT;
 
 	/* Does the other end support the reporting? */
 	if (server_supports("report-status"))
@@ -286,6 +303,18 @@ int send_pack(struct send_pack_args *args,
 		fprintf(stderr, "No refs in common and none specified; doing nothing.\n"
 			"Perhaps you should specify a branch such as 'master'.\n");
 		return 0;
+	}
+
+	if (args->signed_push) {
+		if (server_supports("signed-push"))
+			signed_push = !args->dry_run;
+		else
+			warning("The receiving side does not support signed-push");
+	}
+
+	if (signed_push) {
+		strbuf_addstr(&push_cert, "Push-Certificate-Version: 0\n");
+		strbuf_addf(&push_cert, "Pusher: %s\n", git_committer_info(0));
 	}
 
 	/*
@@ -319,15 +348,19 @@ int send_pack(struct send_pack_args *args,
 			char *old_hex = sha1_to_hex(ref->old_sha1);
 			char *new_hex = sha1_to_hex(ref->new_sha1);
 
-			if (!cmds_sent && (status_report || use_sideband)) {
-				packet_buf_write(&req_buf, "%s %s %s%c%s%s",
+			if (!cmds_sent &&
+			    (status_report || use_sideband || signed_push))
+				packet_buf_write(&req_buf, "%s %s %s%c%s%s%s",
 					old_hex, new_hex, ref->name, 0,
 					status_report ? " report-status" : "",
-					use_sideband ? " side-band-64k" : "");
-			}
+					use_sideband ? " side-band-64k" : "",
+					signed_push ? " signed-push" : "");
 			else
 				packet_buf_write(&req_buf, "%s %s %s",
 					old_hex, new_hex, ref->name);
+			if (signed_push)
+				strbuf_addf(&push_cert, "Update: %s %s\n",
+					    new_hex, ref->name);
 			ref->status = status_report ?
 				REF_STATUS_EXPECTING_REPORT :
 				REF_STATUS_OK;
@@ -344,6 +377,24 @@ int send_pack(struct send_pack_args *args,
 		safe_write(out, req_buf.buf, req_buf.len);
 		packet_flush(out);
 	}
+
+	if (signed_push && cmds_sent) {
+		char *cp, *ep;
+
+		if (sign_push_certificate(&push_cert))
+			return error(_("failed to sign push certificate"));
+		strbuf_reset(&req_buf);
+		for (cp = push_cert.buf; *cp; cp = ep) {
+			ep = strchrnul(cp, '\n');
+			if (*ep == '\n')
+				ep++;
+			packet_buf_write(&req_buf, "%.*s",
+					 (int)(ep - cp), cp);
+		}
+		/* Do we need anything funky for stateless rpc? */
+		safe_write(out, req_buf.buf, req_buf.len);
+		packet_flush(out);
+	}
 	strbuf_release(&req_buf);
 
 	if (use_sideband && cmds_sent) {
@@ -352,7 +403,7 @@ int send_pack(struct send_pack_args *args,
 		demux.data = fd;
 		demux.out = -1;
 		if (start_async(&demux))
-			die("receive-pack: unable to fork off sideband demultiplexer");
+			die("send-pack: unable to fork off sideband demultiplexer");
 		in = demux.out;
 	}
 
@@ -520,7 +571,7 @@ int cmd_send_pack(int argc, const char **argv, const char *prefix)
 		flags |= MATCH_REFS_MIRROR;
 
 	/* match them up */
-	if (match_refs(local_refs, &remote_refs, nr_refspecs, refspecs, flags))
+	if (match_push_refs(local_refs, &remote_refs, nr_refspecs, refspecs, flags))
 		return -1;
 
 	set_ref_status_for_push(remote_refs, args.send_mirror,

@@ -12,6 +12,11 @@
 #include "string-list.h"
 #include "sha1-array.h"
 #include "connected.h"
+#include "gpg-interface.h"
+#include "notes.h"
+#include "notes-merge.h"
+#include "blob.h"
+#include "tag.h"
 
 static const char receive_pack_usage[] = "git receive-pack <git-dir>";
 
@@ -33,12 +38,14 @@ static int transfer_unpack_limit = -1;
 static int unpack_limit = 100;
 static unsigned long limit_pack_size, limit_commit_count, limit_object_count;
 static int report_status;
+static int signed_push;
 static int use_sideband;
 static int prefer_ofs_delta = 1;
 static int auto_update_server_info;
 static int auto_gc = 1;
 static const char *head_name;
 static int sent_capabilities;
+static char *push_certificate;
 
 static enum deny_action parse_deny_action(const char *var, const char *value)
 {
@@ -134,7 +141,7 @@ static const char *capabilities(void)
 {
 	static char buf[1024];
 	int ret = snprintf(buf, sizeof(buf),
-			   " report-status delete-refs side-band-64k%s",
+			   " report-status delete-refs side-band-64k signed-push%s",
 			   prefer_ofs_delta ? " ofs-delta" : "");
 	if (limit_pack_size > 0)
 		ret += snprintf(buf + ret, sizeof(buf) - ret,
@@ -336,6 +343,27 @@ static int run_receive_hook(struct command *commands, const char *hook_name,
 	status = run_and_feed_hook(hook_name, feed_receive_hook, &state);
 	strbuf_release(&state.buf);
 	return status;
+}
+
+static int feed_signature_hook(void *state_, const char **bufp, size_t *sizep)
+{
+	const char **cert_p = state_;
+
+	if (!*cert_p)
+		return -1; /* EOF */
+	*bufp = *cert_p;
+	*cert_p = NULL; /* just return once */
+	*sizep = strlen(*bufp);
+	return 0;
+}
+
+static int run_receive_signature_hook(const char *cert)
+{
+	static const char hook[] = "hooks/pre-receive-signature";
+
+	if (!cert)
+		return 0;
+	return run_and_feed_hook(hook, feed_signature_hook, &cert);
 }
 
 static int run_update_hook(struct command *cmd)
@@ -696,6 +724,80 @@ static int iterate_receive_command_list(void *cb_data, unsigned char sha1[20])
 	return 0;
 }
 
+static void get_note_text(struct strbuf *buf, struct notes_tree *t,
+			  const unsigned char *object)
+{
+	const unsigned char *sha1 = get_note(t, object);
+	char *text;
+	unsigned long len;
+	enum object_type type;
+
+	if (!sha1)
+		return;
+	text = read_sha1_file(sha1, &type, &len);
+	if (text && len && type == OBJ_BLOB)
+		strbuf_add(buf, text, len);
+	free(text);
+}
+
+static int record_signed_push(char *cert)
+{
+	/*
+	 * This is the place for you to parse the signed push
+	 * certificate, grab the commit object names the push updates
+	 * refs to, and append the certificate to the notes to these
+	 * commits.
+	 */
+	size_t total, payload;
+	char *cp, *ep;
+	int ret = 0;
+	struct notes_tree *t;
+	struct strbuf nbuf = STRBUF_INIT;
+
+	if (!cert)
+		return 0;
+
+	init_notes(NULL, "refs/notes/signed-push", NULL, 0);
+	t = &default_notes_tree;
+
+	total = strlen(cert);
+	payload = parse_signature(cert, total);
+	for (cp = cert; cp < cert + payload; cp = ep) {
+		unsigned char sha1[20], nsha1[20];
+
+		ep = strchrnul(cp, '\n');
+		if (*ep == '\n')
+			ep++;
+		if (prefixcmp(cp, "Update: "))
+			continue;
+		cp += strlen("Update: ");
+		if (get_sha1_hex(cp, sha1) || cp[40] != ' ')
+			continue;
+
+		get_note_text(&nbuf, t, sha1);
+		if (nbuf.len)
+			strbuf_addch(&nbuf, '\n');
+		strbuf_add(&nbuf, cert, total);
+		if (write_sha1_file(nbuf.buf, nbuf.len, blob_type, nsha1) ||
+		    add_note(t, sha1, nsha1, NULL))
+			ret = error(_("unable to write note object"));
+		strbuf_reset(&nbuf);
+	}
+
+	if (!ret) {
+		unsigned char commit[20];
+		unsigned char parent[20];
+		struct ref_lock *lock;
+
+		resolve_ref(t->ref, parent, 0, NULL);
+		lock = lock_any_ref_for_update(t->ref, parent, 0);
+		create_notes_commit(t, NULL, "push", commit);
+		ret = write_ref_sha1(lock, commit, "push");
+	}
+	free_notes(t);
+	return ret;
+}
+
 static void execute_commands(struct command *commands, const char *unpacker_error)
 {
 	struct command *cmd;
@@ -715,6 +817,18 @@ static void execute_commands(struct command *commands, const char *unpacker_erro
 	if (run_receive_hook(commands, pre_receive_hook, 0)) {
 		for (cmd = commands; cmd; cmd = cmd->next)
 			cmd->error_string = "pre-receive hook declined";
+		return;
+	}
+
+	if (run_receive_signature_hook(push_certificate)) {
+		for (cmd = commands; cmd; cmd = cmd->next)
+			cmd->error_string = "n/a (pre-receive-signature hook declined)";
+		return;
+	}
+
+	if (record_signed_push(push_certificate)) {
+		for (cmd = commands; cmd; cmd = cmd->next)
+			cmd->error_string = "n/a (push signature error)";
 		return;
 	}
 
@@ -758,6 +872,8 @@ static struct command *read_head_info(void)
 				report_status = 1;
 			if (strstr(refname + reflen + 1, "side-band-64k"))
 				use_sideband = LARGE_PACKET_MAX;
+			if (strstr(refname + reflen + 1, "signed-push"))
+				signed_push = 1;
 		}
 		cmd = xcalloc(1, sizeof(struct command) + len - 80);
 		hashcpy(cmd->old_sha1, old_sha1);
@@ -858,6 +974,21 @@ static const char *unpack(void)
 		}
 		return "index-pack abnormal exit";
 	}
+}
+
+static char *receive_push_certificate(void)
+{
+	struct strbuf cert = STRBUF_INIT;
+	for (;;) {
+		char line[1000];
+		int len;
+
+		len = packet_read_line(0, line, sizeof(line));
+		if (!len)
+			break;
+		strbuf_add(&cert, line, len);
+	}
+	return strbuf_detach(&cert, NULL);
 }
 
 static void report(struct command *commands, const char *unpack_status)
@@ -975,6 +1106,8 @@ int cmd_receive_pack(int argc, const char **argv, const char *prefix)
 	if ((commands = read_head_info()) != NULL) {
 		const char *unpack_status = NULL;
 
+		if (signed_push)
+			push_certificate = receive_push_certificate();
 		if (!delete_only(commands))
 			unpack_status = unpack();
 		execute_commands(commands, unpack_status);
