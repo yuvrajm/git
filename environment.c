@@ -147,6 +147,10 @@ int is_bare_repository(void)
 	return is_bare_repository_cfg && !get_git_work_tree();
 }
 
+/*
+ * This symbol might be unreferenced in normal builds but
+ * compat/cygwin.c refers to it. Do not remove without checking!
+ */
 int have_git_dir(void)
 {
 	return !!git_dir;

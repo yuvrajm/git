@@ -16,7 +16,6 @@ extern const char git_more_info_string[];
 extern void prune_packed_objects(int);
 extern int fmt_merge_msg(struct strbuf *in, struct strbuf *out,
 			 int merge_title, int shortlog_len);
-extern void commit_notes(struct notes_tree *t, const char *msg);
 
 struct notes_rewrite_cfg {
 	struct notes_tree **trees;
@@ -28,7 +27,6 @@ struct notes_rewrite_cfg {
 	int mode_from_env;
 };
 
-combine_notes_fn parse_combine_notes_fn(const char *v);
 struct notes_rewrite_cfg *init_copy_notes_for_rewrite(const char *cmd);
 int copy_note_for_rewrite(struct notes_rewrite_cfg *c,
 			  const unsigned char *from_obj, const unsigned char *to_obj);

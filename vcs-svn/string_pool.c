@@ -32,7 +32,7 @@ static int node_cmp(struct node *a, struct node *b)
 /* Build a Treap from the node structure (a trp_node w/ offset) */
 trp_gen(static, tree_, struct node, children, node, node_cmp)
 
-const char *pool_fetch(uint32_t entry)
+static const char *pool_fetch(uint32_t entry)
 {
 	return node_value(node_pointer(entry));
 }
@@ -59,7 +59,7 @@ uint32_t pool_intern(const char *key)
 	return node_offset(node);
 }
 
-uint32_t pool_tok_r(char *str, const char *delim, char **saveptr)
+static uint32_t pool_tok_r(char *str, const char *delim, char **saveptr)
 {
 	char *token = strtok_r(str, delim, saveptr);
 	return token ? pool_intern(token) : ~0;

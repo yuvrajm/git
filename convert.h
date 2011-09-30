@@ -51,7 +51,6 @@ struct stream_filter; /* opaque */
 
 extern struct stream_filter *get_stream_filter(const char *path, const unsigned char *);
 extern void free_stream_filter(struct stream_filter *);
-extern int is_null_stream_filter(struct stream_filter *);
 
 /*
  * Use as much input up to *isize_p and fill output up to *osize_p;

@@ -113,6 +113,11 @@ void setup_path(void)
 	strbuf_release(&new_path);
 }
 
+/*
+ * This symbol may be unreferenced from outside this file in some
+ * builds, but run-command.c on Windows does use it. Do not make it
+ * static without checking!
+ */
 const char **prepare_git_cmd(const char **argv)
 {
 	int argc;
