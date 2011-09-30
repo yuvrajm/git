@@ -5,19 +5,6 @@
 #include "commit.h"
 #include "tag.h"
 
-static struct object **obj_hash;
-static int nr_objs, obj_hash_size;
-
-unsigned int get_max_object_index(void)
-{
-	return obj_hash_size;
-}
-
-struct object *get_indexed_object(unsigned int idx)
-{
-	return obj_hash[idx];
-}
-
 static const char *object_type_strings[] = {
 	NULL,		/* OBJ_NONE = 0 */
 	"commit",	/* OBJ_COMMIT = 1 */
@@ -43,72 +30,148 @@ int type_from_string(const char *str)
 	die("invalid object type \"%s\"", str);
 }
 
-static unsigned int hash_obj(struct object *obj, unsigned int n)
+static struct object **obj_hash;
+static int nr_objs, obj_hash_size;
+
+unsigned int get_max_object_index(void)
 {
-	unsigned int hash;
-	memcpy(&hash, obj->sha1, sizeof(unsigned int));
-	return hash % n;
+	return obj_hash_size;
 }
 
-static void insert_obj_hash(struct object *obj, struct object **hash, unsigned int size)
+struct object *get_indexed_object(unsigned int idx)
 {
-	unsigned int j = hash_obj(obj, size);
-
-	while (hash[j]) {
-		j++;
-		if (j >= size)
-			j = 0;
-	}
-	hash[j] = obj;
+	return obj_hash[idx];
 }
 
-static unsigned int hashtable_index(const unsigned char *sha1)
-{
-	unsigned int i;
-	memcpy(&i, sha1, sizeof(unsigned int));
-	return i % obj_hash_size;
-}
+
+/* Choose from 2, 3, 4 or 5 */
+#define CUCKOO_FACTOR 4
+
+#define H(hv,ix) ((hv[ix]) & (obj_hash_size-1))
 
 struct object *lookup_object(const unsigned char *sha1)
 {
-	unsigned int i;
 	struct object *obj;
+	const unsigned int *hashval;
 
 	if (!obj_hash)
 		return NULL;
 
-	i = hashtable_index(sha1);
-	while ((obj = obj_hash[i]) != NULL) {
-		if (!hashcmp(sha1, obj->sha1))
-			break;
-		i++;
-		if (i == obj_hash_size)
-			i = 0;
+	hashval = (const unsigned int *)sha1;
+	if ((obj = obj_hash[H(hashval, 0)]) && !hashcmp(sha1, obj->sha1))
+		return obj;
+	if ((obj = obj_hash[H(hashval, 1)]) && !hashcmp(sha1, obj->sha1))
+		return obj;
+#if CUCKOO_FACTOR >= 3
+	if ((obj = obj_hash[H(hashval, 2)]) && !hashcmp(sha1, obj->sha1))
+		return obj;
+#endif
+#if CUCKOO_FACTOR >= 4
+	if ((obj = obj_hash[H(hashval, 3)]) && !hashcmp(sha1, obj->sha1))
+		return obj;
+#endif
+#if CUCKOO_FACTOR >= 5
+	if ((obj = obj_hash[H(hashval, 4)]) && !hashcmp(sha1, obj->sha1))
+		return obj;
+#endif
+	return NULL;
+}
+
+static void grow_object_hash(void); /* forward */
+
+/*
+ * A naive single-table cuckoo hashing implementation.
+ * Return NULL when "obj" is successfully inserted. Otherwise
+ * return a pointer to the object to be inserted (which may
+ * be different from the original obj). The caller is expected
+ * to grow the hash table and re-insert the returned object.
+ */
+static struct object *insert_obj_hash(struct object *obj)
+{
+	int loop;
+
+	for (loop = obj_hash_size - obj_hash_size / 8; 0 <= loop; loop--) {
+		struct object *tmp_obj;
+		unsigned int ix, i0;
+		const unsigned int *hashval;
+
+		hashval = (const unsigned int *)(obj->sha1);
+		i0 = ix = H(hashval, 0);
+		tmp_obj = obj_hash[i0];
+		if (!tmp_obj) {
+			obj_hash[ix] = obj;
+			return NULL;
+		}
+		ix = H(hashval, 1);
+		if (!obj_hash[ix]) {
+			obj_hash[ix] = obj;
+			return NULL;
+		}
+#if CUCKOO_FACTOR >= 3
+		ix = H(hashval, 2);
+		if (!obj_hash[ix]) {
+			obj_hash[ix] = obj;
+			return NULL;
+		}
+#endif
+#if CUCKOO_FACTOR >= 4
+		ix = H(hashval, 3);
+		if (!obj_hash[ix]) {
+			obj_hash[ix] = obj;
+			return NULL;
+		}
+#endif
+#if CUCKOO_FACTOR >= 5
+		ix = H(hashval, 4);
+		if (!obj_hash[ix]) {
+			obj_hash[ix] = obj;
+			return NULL;
+		}
+#endif
+		obj_hash[i0] = obj;
+		obj = tmp_obj;
 	}
 	return obj;
 }
 
+static int next_size(int sz)
+{
+	return (sz < 32 ? 32 :
+		(sz < 1024 * 1024 ? 8 : 2) * sz);
+}
+
 static void grow_object_hash(void)
 {
-	int i;
-	int new_hash_size = obj_hash_size < 32 ? 32 : 2 * obj_hash_size;
-	struct object **new_hash;
+	struct object **current_hash;
+	int current_size;
 
-	new_hash = xcalloc(new_hash_size, sizeof(struct object *));
-	for (i = 0; i < obj_hash_size; i++) {
-		struct object *obj = obj_hash[i];
-		if (!obj)
+	current_hash = obj_hash;
+	current_size = obj_hash_size;
+	while (1) {
+		int i;
+		obj_hash_size = next_size(obj_hash_size);
+		obj_hash = xcalloc(obj_hash_size, sizeof(struct object *));
+
+		for (i = 0; i < current_size; i++) {
+			if (!current_hash[i])
+				continue;
+			if (insert_obj_hash(current_hash[i]))
+				break;
+		}
+		if (i < current_size) {
+			/* too small - grow and retry */
+			free(obj_hash);
 			continue;
-		insert_obj_hash(obj, new_hash, new_hash_size);
+		}
+		free(current_hash);
+		return;
 	}
-	free(obj_hash);
-	obj_hash = new_hash;
-	obj_hash_size = new_hash_size;
 }
 
 void *create_object(const unsigned char *sha1, int type, void *o)
 {
 	struct object *obj = o;
+	struct object *to_insert;
 
 	obj->parsed = 0;
 	obj->used = 0;
@@ -116,10 +179,16 @@ void *create_object(const unsigned char *sha1, int type, void *o)
 	obj->flags = 0;
 	hashcpy(obj->sha1, sha1);
 
-	if (obj_hash_size - 1 <= nr_objs * 2)
+	if (!obj_hash_size)
 		grow_object_hash();
 
-	insert_obj_hash(obj, obj_hash, obj_hash_size);
+	to_insert = obj;
+	while (1) {
+		to_insert = insert_obj_hash(to_insert);
+		if (!to_insert)
+			break;
+		grow_object_hash();
+	}
 	nr_objs++;
 	return obj;
 }
