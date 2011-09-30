@@ -780,32 +780,47 @@ static int find_first_merges(struct object_array *result, const char *path,
 	struct object_array merges;
 	struct commit *commit;
 	int contains_another;
+	FILE *out;
 
 	char merged_revision[42];
 	const char *rev_args[] = { "rev-list", "--merges", "--ancestry-path",
 				   "--all", merged_revision, NULL };
-	struct rev_info revs;
-	struct setup_revision_opt rev_opts;
+	struct child_process cp;
+	struct strbuf one_rev = STRBUF_INIT;
 
 	memset(&merges, 0, sizeof(merges));
 	memset(result, 0, sizeof(struct object_array));
-	memset(&rev_opts, 0, sizeof(rev_opts));
+	memset(&cp, 0, sizeof(cp));
 
 	/* get all revisions that merge commit a */
 	snprintf(merged_revision, sizeof(merged_revision), "^%s",
 			sha1_to_hex(a->object.sha1));
-	init_revisions(&revs, NULL);
-	rev_opts.submodule = path;
-	setup_revisions(sizeof(rev_args)/sizeof(char *)-1, rev_args, &revs, &rev_opts);
+
+	cp.argv = rev_args;
+	cp.env = local_repo_env;
+	cp.git_cmd = 1;
+	cp.no_stdin = 1;
+	cp.out = -1;
+	cp.dir = path;
+	if (start_command(&cp))
+		die("Could not run 'git rev-list --merges --ancestry-path --all %s' "
+				"command in submodule %s", merged_revision, path);
+	out = fdopen(cp.out, "r");
+	if (!out)
+		die("Could not open pipe of rev-list command.");
 
 	/* save all revisions from the above list that contain b */
-	if (prepare_revision_walk(&revs))
-		die("revision walk setup failed");
-	while ((commit = get_revision(&revs)) != NULL) {
-		struct object *o = &(commit->object);
+	while (strbuf_getline(&one_rev, out, '\n') != EOF) {
+		struct object *o;
+		commit = lookup_commit_reference_by_name(one_rev.buf);
+		o = &(commit->object);
 		if (in_merge_bases(b, &commit, 1))
 			add_object_array(o, NULL, &merges);
 	}
+
+	fclose(out);
+	finish_command(&cp);
+	strbuf_release(&one_rev);
 
 	/* Now we've got all merges that contain a and b. Prune all
 	 * merges that contain another found merge and save them in
@@ -847,7 +862,7 @@ static void print_commit(struct commit *commit)
 
 int merge_submodule(unsigned char result[20], const char *path,
 		    const unsigned char base[20], const unsigned char a[20],
-		    const unsigned char b[20])
+		    const unsigned char b[20], int search)
 {
 	struct commit *commit_base, *commit_a, *commit_b;
 	int parent_count;
@@ -901,6 +916,10 @@ int merge_submodule(unsigned char result[20], const char *path,
 	 * suggestion to the user, but leave it marked unmerged so the
 	 * user needs to confirm the resolution.
 	 */
+
+	/* Skip the search if makes no sense to the calling context.  */
+	if (!search)
+		return 0;
 
 	/* find commit which merges them */
 	parent_count = find_first_merges(&merges, path, commit_a, commit_b);
