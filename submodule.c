@@ -10,6 +10,7 @@
 #include "string-list.h"
 #include "transport.h"
 #include "sha1-array.h"
+#include "argv-array.h"
 
 typedef int (*needs_push_func_t)(const char *path, const unsigned char sha1[20],
 		void *data);
@@ -549,56 +550,26 @@ void check_for_new_submodule_commits(unsigned char new_sha1[20])
 	sha1_array_append(&ref_tips_after_fetch, new_sha1);
 }
 
-struct argv_array {
-	const char **argv;
-	unsigned int argc;
-	unsigned int alloc;
-};
-
-static void init_argv(struct argv_array *array)
-{
-	array->argv = NULL;
-	array->argc = 0;
-	array->alloc = 0;
-}
-
-static void push_argv(struct argv_array *array, const char *value)
-{
-	ALLOC_GROW(array->argv, array->argc + 2, array->alloc);
-	array->argv[array->argc++] = xstrdup(value);
-	array->argv[array->argc] = NULL;
-}
-
-static void clear_argv(struct argv_array *array)
-{
-	int i;
-	for (i = 0; i < array->argc; i++)
-		free((char **)array->argv[i]);
-	free(array->argv);
-	init_argv(array);
-}
-
 static void add_sha1_to_argv(const unsigned char sha1[20], void *data)
 {
-	push_argv(data, sha1_to_hex(sha1));
+	argv_array_push(data, sha1_to_hex(sha1));
 }
 
 static void calculate_changed_submodule_paths(void)
 {
 	struct rev_info rev;
 	struct commit *commit;
-	struct argv_array argv;
+	struct argv_array argv = ARGV_ARRAY_INIT;
 
 	/* No need to check if there are no submodules configured */
 	if (!config_name_for_path.nr)
 		return;
 
 	init_revisions(&rev, NULL);
-	init_argv(&argv);
-	push_argv(&argv, "--"); /* argv[0] program name */
+	argv_array_push(&argv, "--"); /* argv[0] program name */
 	sha1_array_for_each_unique(&ref_tips_after_fetch,
 				   add_sha1_to_argv, &argv);
-	push_argv(&argv, "--not");
+	argv_array_push(&argv, "--not");
 	sha1_array_for_each_unique(&ref_tips_before_fetch,
 				   add_sha1_to_argv, &argv);
 	setup_revisions(argv.argc, argv.argv, &rev, NULL);
@@ -626,7 +597,7 @@ static void calculate_changed_submodule_paths(void)
 		}
 	}
 
-	clear_argv(&argv);
+	argv_array_clear(&argv);
 	sha1_array_clear(&ref_tips_before_fetch);
 	sha1_array_clear(&ref_tips_after_fetch);
 	initialized_fetch_ref_tips = 0;
