@@ -10,24 +10,21 @@ find_blame() {
 cat >helper <<'EOF'
 #!/bin/sh
 grep -q '^bin: ' "$1" || { echo "E: $1 is not \"binary\" file" 1>&2; exit 1; }
-sed 's/^bin: /converted: /' "$1"
+"$PERL_PATH" -p -e 's/^bin: /converted: /' "$1"
 EOF
 chmod +x helper
 
 test_expect_success 'setup ' '
+	echo "bin: test number 0" >zero.bin &&
 	echo "bin: test 1" >one.bin &&
 	echo "bin: test number 2" >two.bin &&
-	if test_have_prereq SYMLINKS; then
-		ln -s one.bin symlink.bin
-	fi &&
+	test_ln_s_add one.bin symlink.bin &&
 	git add . &&
 	GIT_AUTHOR_NAME=Number1 git commit -a -m First --date="2010-01-01 18:00:00" &&
 	echo "bin: test 1 version 2" >one.bin &&
 	echo "bin: test number 2 version 2" >>two.bin &&
-	if test_have_prereq SYMLINKS; then
-		rm symlink.bin &&
-		ln -s two.bin symlink.bin
-	fi &&
+	rm -f symlink.bin &&
+	test_ln_s_add two.bin symlink.bin &&
 	GIT_AUTHOR_NAME=Number2 git commit -a -m Second --date="2010-01-01 20:00:00"
 '
 
@@ -43,6 +40,7 @@ test_expect_success 'no filter specified' '
 
 test_expect_success 'setup textconv filters' '
 	echo "*.bin diff=test" >.gitattributes &&
+	echo "zero.bin eol=crlf" >>.gitattributes &&
 	git config diff.test.textconv ./helper &&
 	git config diff.test.cachetextconv false
 '
@@ -72,6 +70,15 @@ test_expect_success 'blame --textconv going through revisions' '
 	git blame --textconv two.bin >blame &&
 	find_blame <blame >result &&
 	test_cmp expected result
+'
+
+test_expect_success 'blame --textconv with local changes' '
+	test_when_finished "git checkout zero.bin" &&
+	printf "bin: updated number 0\015" >zero.bin &&
+	git blame --textconv zero.bin >blame &&
+	expect="(Not Committed Yet ....-..-.. ..:..:.. +0000 1)" &&
+	expect="$expect converted: updated number 0" &&
+	expr "$(find_blame <blame)" : "^$expect"
 '
 
 test_expect_success 'setup +cachetextconv' '
@@ -124,7 +131,7 @@ test_expect_success SYMLINKS 'blame --textconv (on symlink)' '
 
 # cp two.bin three.bin  and make small tweak
 # (this will direct blame -C -C three.bin to consider two.bin and symlink.bin)
-test_expect_success SYMLINKS 'make another new commit' '
+test_expect_success 'make another new commit' '
 	cat >three.bin <<\EOF &&
 bin: test number 2
 bin: test number 2 version 2
@@ -135,7 +142,7 @@ EOF
 	GIT_AUTHOR_NAME=Number4 git commit -a -m Fourth --date="2010-01-01 23:00:00"
 '
 
-test_expect_success SYMLINKS 'blame on last commit (-C -C, symlink)' '
+test_expect_success 'blame on last commit (-C -C, symlink)' '
 	git blame -C -C three.bin >blame &&
 	find_blame <blame >result &&
 	cat >expected <<\EOF &&
