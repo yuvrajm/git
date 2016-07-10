@@ -100,18 +100,15 @@ static int xdiff_outf(void *priv_, mmbuffer_t *mb, int nbuf)
 
 /*
  * Trim down common substring at the end of the buffers,
- * but leave at least ctx lines at the end.
+ * but end on a complete line.
  */
-static void trim_common_tail(mmfile_t *a, mmfile_t *b, long ctx)
+static void trim_common_tail(mmfile_t *a, mmfile_t *b)
 {
 	const int blk = 1024;
 	long trimmed = 0, recovered = 0;
 	char *ap = a->ptr + a->size;
 	char *bp = b->ptr + b->size;
 	long smaller = (a->size < b->size) ? a->size : b->size;
-
-	if (ctx)
-		return;
 
 	while (blk + trimmed <= smaller && !memcmp(ap - blk, bp - blk, blk)) {
 		trimmed += blk;
@@ -131,7 +128,11 @@ int xdi_diff(mmfile_t *mf1, mmfile_t *mf2, xpparam_t const *xpp, xdemitconf_t co
 	mmfile_t a = *mf1;
 	mmfile_t b = *mf2;
 
-	trim_common_tail(&a, &b, xecfg->ctxlen);
+	if (mf1->size > MAX_XDIFF_SIZE || mf2->size > MAX_XDIFF_SIZE)
+		return -1;
+
+	if (!xecfg->ctxlen && !(xecfg->flags & XDL_EMIT_FUNCCONTEXT))
+		trim_common_tail(&a, &b);
 
 	return xdl_diff(&a, &b, xpp, xecfg, xecb);
 }
@@ -154,50 +155,6 @@ int xdi_diff_outf(mmfile_t *mf1, mmfile_t *mf2,
 	ret = xdi_diff(mf1, mf2, xpp, xecfg, &ecb);
 	strbuf_release(&state.remainder);
 	return ret;
-}
-
-struct xdiff_emit_hunk_state {
-	xdiff_emit_hunk_consume_fn consume;
-	void *consume_callback_data;
-};
-
-static int process_diff(xdfenv_t *xe, xdchange_t *xscr, xdemitcb_t *ecb,
-			xdemitconf_t const *xecfg)
-{
-	long s1, s2, same, p_next, t_next;
-	xdchange_t *xch, *xche;
-	struct xdiff_emit_hunk_state *state = ecb->priv;
-	xdiff_emit_hunk_consume_fn fn = state->consume;
-	void *consume_callback_data = state->consume_callback_data;
-
-	for (xch = xscr; xch; xch = xche->next) {
-		xche = xdl_get_hunk(xch, xecfg);
-
-		s1 = XDL_MAX(xch->i1 - xecfg->ctxlen, 0);
-		s2 = XDL_MAX(xch->i2 - xecfg->ctxlen, 0);
-		same = s2 + XDL_MAX(xch->i1 - s1, 0);
-		p_next = xche->i1 + xche->chg1;
-		t_next = xche->i2 + xche->chg2;
-
-		fn(consume_callback_data, same, p_next, t_next);
-	}
-	return 0;
-}
-
-int xdi_diff_hunks(mmfile_t *mf1, mmfile_t *mf2,
-		   xdiff_emit_hunk_consume_fn fn, void *consume_callback_data,
-		   xpparam_t const *xpp, xdemitconf_t *xecfg)
-{
-	struct xdiff_emit_hunk_state state;
-	xdemitcb_t ecb;
-
-	memset(&state, 0, sizeof(state));
-	memset(&ecb, 0, sizeof(ecb));
-	state.consume = fn;
-	state.consume_callback_data = consume_callback_data;
-	xecfg->emit_func = (void (*)())process_diff;
-	ecb.priv = &state;
-	return xdi_diff(mf1, mf2, xpp, xecfg, &ecb);
 }
 
 int read_mmfile(mmfile_t *ptr, const char *filename)
@@ -306,7 +263,7 @@ void xdiff_set_find_func(xdemitconf_t *xecfg, const char *value, int cflags)
 	for (i = 0, regs->nr = 1; value[i]; i++)
 		if (value[i] == '\n')
 			regs->nr++;
-	regs->array = xmalloc(regs->nr * sizeof(struct ff_reg));
+	ALLOC_ARRAY(regs->array, regs->nr);
 	for (i = 0; i < regs->nr; i++) {
 		struct ff_reg *reg = regs->array + i;
 		const char *ep = strchr(value, '\n'), *expression;

@@ -53,9 +53,9 @@ long buffer_tmpfile_prepare_to_read(struct line_buffer *buf)
 {
 	long pos = ftell(buf->infile);
 	if (pos < 0)
-		return error("ftell error: %s", strerror(errno));
+		return error_errno("ftell error");
 	if (fseek(buf->infile, 0, SEEK_SET))
-		return error("seek error: %s", strerror(errno));
+		return error_errno("seek error");
 	return pos;
 }
 
@@ -91,10 +91,10 @@ char *buffer_read_line(struct line_buffer *buf)
 	return buf->line_buffer;
 }
 
-void buffer_read_binary(struct line_buffer *buf,
-				struct strbuf *sb, uint32_t size)
+size_t buffer_read_binary(struct line_buffer *buf,
+				struct strbuf *sb, size_t size)
 {
-	strbuf_fread(sb, size, buf->infile);
+	return strbuf_fread(sb, size, buf->infile);
 }
 
 off_t buffer_copy_bytes(struct line_buffer *buf, off_t nbytes)
@@ -123,8 +123,4 @@ off_t buffer_skip_bytes(struct line_buffer *buf, off_t nbytes)
 		done += fread(byte_buffer, 1, in, buf->infile);
 	}
 	return done;
-}
-
-void buffer_reset(struct line_buffer *buf)
-{
 }

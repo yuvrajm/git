@@ -76,8 +76,7 @@ test_expect_success 'refuse pushing rewound head without --force' '
 	test "$victim_head" = "$pushed_head"
 '
 
-test_expect_success \
-        'push can be used to delete a ref' '
+test_expect_success 'push can be used to delete a ref' '
 	( cd victim && git branch extra master ) &&
 	git send-pack ./victim :extra master &&
 	( cd victim &&
@@ -129,6 +128,18 @@ test_expect_success 'denyNonFastforwards trumps --force' '
 	test "$victim_orig" = "$victim_head"
 '
 
+test_expect_success 'send-pack --all sends all branches' '
+	# make sure we have at least 2 branches with different
+	# values, just to be thorough
+	git branch other-branch HEAD^ &&
+
+	git init --bare all.git &&
+	git send-pack --all all.git &&
+	git for-each-ref refs/heads >expect &&
+	git -C all.git for-each-ref refs/heads >actual &&
+	test_cmp expect actual
+'
+
 test_expect_success 'push --all excludes remote-tracking hierarchy' '
 	mkdir parent &&
 	(
@@ -145,6 +156,41 @@ test_expect_success 'push --all excludes remote-tracking hierarchy' '
 	)
 '
 
+test_expect_success 'receive-pack runs auto-gc in remote repo' '
+	rm -rf parent child &&
+	git init parent &&
+	(
+	    # Setup a repo with 2 packs
+	    cd parent &&
+	    echo "Some text" >file.txt &&
+	    git add . &&
+	    git commit -m "Initial commit" &&
+	    git repack -adl &&
+	    echo "Some more text" >>file.txt &&
+	    git commit -a -m "Second commit" &&
+	    git repack
+	) &&
+	cp -R parent child &&
+	(
+	    # Set the child to auto-pack if more than one pack exists
+	    cd child &&
+	    git config gc.autopacklimit 1 &&
+	    git config gc.autodetach false &&
+	    git branch test_auto_gc &&
+	    # And create a file that follows the temporary object naming
+	    # convention for the auto-gc to remove
+	    : >.git/objects/tmp_test_object &&
+	    test-chmtime =-1209601 .git/objects/tmp_test_object
+	) &&
+	(
+	    cd parent &&
+	    echo "Even more text" >>file.txt &&
+	    git commit -a -m "Third commit" &&
+	    git send-pack ../child HEAD:refs/heads/test_auto_gc
+	) &&
+	test ! -e child/.git/objects/tmp_test_object
+'
+
 rewound_push_setup() {
 	rm -rf parent child &&
 	mkdir parent &&
@@ -159,19 +205,6 @@ rewound_push_setup() {
 	(
 	    cd child && git reset --hard HEAD^
 	)
-}
-
-rewound_push_succeeded() {
-	cmp ../parent/.git/refs/heads/master .git/refs/heads/master
-}
-
-rewound_push_failed() {
-	if rewound_push_succeeded
-	then
-		false
-	else
-		true
-	fi
 }
 
 test_expect_success 'pushing explicit refspecs respects forcing' '

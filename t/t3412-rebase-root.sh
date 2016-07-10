@@ -22,8 +22,9 @@ test_expect_success 'prepare repository' '
 	test_commit 4 B
 '
 
-test_expect_success 'rebase --root expects --onto' '
-	test_must_fail git rebase --root
+test_expect_success 'rebase --root fails with too many args' '
+	git checkout -B fail other &&
+	test_must_fail git rebase --onto master --root fail fail
 '
 
 test_expect_success 'setup pre-rebase hook' '
@@ -42,7 +43,7 @@ cat > expect <<EOF
 EOF
 
 test_expect_success 'rebase --root --onto <newbase>' '
-	git checkout -b work &&
+	git checkout -b work other &&
 	git rebase --root --onto master &&
 	git log --pretty=tformat:"%s" > rebased &&
 	test_cmp expect rebased
@@ -132,7 +133,7 @@ test_expect_success 'set up second root and merge' '
 	rm A B C &&
 	test_commit 6 D &&
 	git checkout other &&
-	git merge third
+	git merge --allow-unrelated-histories third
 '
 
 cat > expect-third <<'EOF'
