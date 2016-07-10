@@ -47,7 +47,9 @@ test_expect_success 'setup roots, merges and octopuses' '
 	git checkout -b yetanotherbranch four &&
 	test_commit eight &&
 	git checkout master &&
-	test_merge normalmerge newroot &&
+	test_tick &&
+	git merge --allow-unrelated-histories -m normalmerge newroot &&
+	git tag normalmerge &&
 	test_tick &&
 	git merge -m tripus sidebranch anotherbranch &&
 	git tag tripus &&
@@ -133,4 +135,17 @@ test_expect_success 'dodecapus' '
 	check_revlist "--min-parents=13" &&
 	check_revlist "--min-parents=4 --max-parents=11" tetrapus
 '
+
+test_expect_success 'ancestors with the same commit time' '
+
+	test_tick_keep=$test_tick &&
+	for i in 1 2 3 4 5 6 7 8; do
+		test_tick=$test_tick_keep
+		test_commit t$i
+	done &&
+	git rev-list t1^! --not t$i >result &&
+	>expect &&
+	test_cmp expect result
+'
+
 test_done

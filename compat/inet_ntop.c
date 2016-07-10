@@ -15,13 +15,7 @@
  * SOFTWARE.
  */
 
-#include <errno.h>
-#include <sys/types.h>
-
 #include "../git-compat-util.h"
-
-#include <stdio.h>
-#include <string.h>
 
 #ifndef NS_INADDRSZ
 #define NS_INADDRSZ	4
@@ -59,11 +53,11 @@ inet_ntop4(const u_char *src, char *dst, size_t size)
 	nprinted = snprintf(tmp, sizeof(tmp), fmt, src[0], src[1], src[2], src[3]);
 	if (nprinted < 0)
 		return (NULL);	/* we assume "errno" was set by "snprintf()" */
-	if ((size_t)nprinted > size) {
+	if ((size_t)nprinted >= size) {
 		errno = ENOSPC;
 		return (NULL);
 	}
-	strcpy(dst, tmp);
+	strlcpy(dst, tmp, size);
 	return (dst);
 }
 
@@ -98,7 +92,9 @@ inet_ntop6(const u_char *src, char *dst, size_t size)
 	for (i = 0; i < NS_IN6ADDRSZ; i++)
 		words[i / 2] |= (src[i] << ((1 - (i % 2)) << 3));
 	best.base = -1;
+	best.len = 0;
 	cur.base = -1;
+	cur.len = 0;
 	for (i = 0; i < (NS_IN6ADDRSZ / NS_INT16SZ); i++) {
 		if (words[i] == 0) {
 			if (cur.base == -1)
@@ -158,7 +154,7 @@ inet_ntop6(const u_char *src, char *dst, size_t size)
 		errno = ENOSPC;
 		return (NULL);
 	}
-	strcpy(dst, tmp);
+	strlcpy(dst, tmp, size);
 	return (dst);
 }
 #endif

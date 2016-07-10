@@ -234,4 +234,44 @@ test_expect_success 'read-tree --reset removes outside worktree' '
 	test_cmp empty result
 '
 
+test_expect_success 'print errors when failed to update worktree' '
+	echo sub >.git/info/sparse-checkout &&
+	git checkout -f init &&
+	mkdir sub &&
+	touch sub/added sub/addedtoo &&
+	test_must_fail git checkout top 2>actual &&
+	cat >expected <<\EOF &&
+error: The following untracked working tree files would be overwritten by checkout:
+	sub/added
+	sub/addedtoo
+Please move or remove them before you can switch branches.
+Aborting
+EOF
+	test_cmp expected actual
+'
+
+test_expect_success 'checkout without --ignore-skip-worktree-bits' '
+	echo "*" >.git/info/sparse-checkout &&
+	git checkout -f top &&
+	test_path_is_file init.t &&
+	echo sub >.git/info/sparse-checkout &&
+	git checkout &&
+	echo modified >> sub/added &&
+	git checkout . &&
+	test_path_is_missing init.t &&
+	git diff --exit-code HEAD
+'
+
+test_expect_success 'checkout with --ignore-skip-worktree-bits' '
+	echo "*" >.git/info/sparse-checkout &&
+	git checkout -f top &&
+	test_path_is_file init.t &&
+	echo sub >.git/info/sparse-checkout &&
+	git checkout &&
+	echo modified >> sub/added &&
+	git checkout --ignore-skip-worktree-bits . &&
+	test_path_is_file init.t &&
+	git diff --exit-code HEAD
+'
+
 test_done

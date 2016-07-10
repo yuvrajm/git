@@ -328,8 +328,11 @@ int xdl_do_diff(mmfile_t *mf1, mmfile_t *mf2, xpparam_t const *xpp,
 	xdalgoenv_t xenv;
 	diffdata_t dd1, dd2;
 
-	if (xpp->flags & XDF_PATIENCE_DIFF)
+	if (XDF_DIFF_ALG(xpp->flags) == XDF_PATIENCE_DIFF)
 		return xdl_do_patience_diff(mf1, mf2, xpp, xe);
+
+	if (XDF_DIFF_ALG(xpp->flags) == XDF_HISTOGRAM_DIFF)
+		return xdl_do_histogram_diff(mf1, mf2, xpp, xe);
 
 	if (xdl_prepare_env(mf1, mf2, xpp, xe) < 0) {
 
@@ -391,14 +394,29 @@ static xdchange_t *xdl_add_change(xdchange_t *xscr, long i1, long i2, long chg1,
 	xch->i2 = i2;
 	xch->chg1 = chg1;
 	xch->chg2 = chg2;
+	xch->ignore = 0;
 
 	return xch;
 }
 
 
+static int is_blank_line(xrecord_t **recs, long ix, long flags)
+{
+	return xdl_blankline(recs[ix]->ptr, recs[ix]->size, flags);
+}
+
+static int recs_match(xrecord_t **recs, long ixs, long ix, long flags)
+{
+	return (recs[ixs]->ha == recs[ix]->ha &&
+		xdl_recmatch(recs[ixs]->ptr, recs[ixs]->size,
+			     recs[ix]->ptr, recs[ix]->size,
+			     flags));
+}
+
 int xdl_change_compact(xdfile_t *xdf, xdfile_t *xdfo, long flags) {
 	long ix, ixo, ixs, ixref, grpsiz, nrec = xdf->nrec;
 	char *rchg = xdf->rchg, *rchgo = xdfo->rchg;
+	unsigned int blank_lines;
 	xrecord_t **recs = xdf->recs;
 
 	/*
@@ -432,14 +450,14 @@ int xdl_change_compact(xdfile_t *xdf, xdfile_t *xdfo, long flags) {
 
 		do {
 			grpsiz = ix - ixs;
+			blank_lines = 0;
 
 			/*
 			 * If the line before the current change group, is equal to
 			 * the last line of the current change group, shift backward
 			 * the group.
 			 */
-			while (ixs > 0 && recs[ixs - 1]->ha == recs[ix - 1]->ha &&
-			       xdl_recmatch(recs[ixs - 1]->ptr, recs[ixs - 1]->size, recs[ix - 1]->ptr, recs[ix - 1]->size, flags)) {
+			while (ixs > 0 && recs_match(recs, ixs - 1, ix - 1, flags)) {
 				rchg[--ixs] = 1;
 				rchg[--ix] = 0;
 
@@ -466,8 +484,9 @@ int xdl_change_compact(xdfile_t *xdf, xdfile_t *xdfo, long flags) {
 			 * the line next of the current change group, shift forward
 			 * the group.
 			 */
-			while (ix < nrec && recs[ixs]->ha == recs[ix]->ha &&
-			       xdl_recmatch(recs[ixs]->ptr, recs[ixs]->size, recs[ix]->ptr, recs[ix]->size, flags)) {
+			while (ix < nrec && recs_match(recs, ixs, ix, flags)) {
+				blank_lines += is_blank_line(recs, ix, flags);
+
 				rchg[ixs++] = 0;
 				rchg[ix++] = 1;
 
@@ -487,12 +506,29 @@ int xdl_change_compact(xdfile_t *xdf, xdfile_t *xdfo, long flags) {
 
 		/*
 		 * Try to move back the possibly merged group of changes, to match
-		 * the recorded postion in the other file.
+		 * the recorded position in the other file.
 		 */
 		while (ixref < ix) {
 			rchg[--ixs] = 1;
 			rchg[--ix] = 0;
 			while (rchgo[--ixo]);
+		}
+
+		/*
+		 * If a group can be moved back and forth, see if there is a
+		 * blank line in the moving space. If there is a blank line,
+		 * make sure the last blank line is the end of the group.
+		 *
+		 * As we already shifted the group forward as far as possible
+		 * in the earlier loop, we need to shift it back only if at all.
+		 */
+		if ((flags & XDF_COMPACTION_HEURISTIC) && blank_lines) {
+			while (ixs > 0 &&
+			       !is_blank_line(recs, ix - 1, flags) &&
+			       recs_match(recs, ixs - 1, ix - 1, flags)) {
+				rchg[--ixs] = 1;
+				rchg[--ix] = 0;
+			}
 		}
 	}
 
@@ -535,13 +571,49 @@ void xdl_free_script(xdchange_t *xscr) {
 	}
 }
 
+static int xdl_call_hunk_func(xdfenv_t *xe, xdchange_t *xscr, xdemitcb_t *ecb,
+			      xdemitconf_t const *xecfg)
+{
+	xdchange_t *xch, *xche;
+
+	for (xch = xscr; xch; xch = xche->next) {
+		xche = xdl_get_hunk(&xch, xecfg);
+		if (!xch)
+			break;
+		if (xecfg->hunk_func(xch->i1, xche->i1 + xche->chg1 - xch->i1,
+				     xch->i2, xche->i2 + xche->chg2 - xch->i2,
+				     ecb->priv) < 0)
+			return -1;
+	}
+	return 0;
+}
+
+static void xdl_mark_ignorable(xdchange_t *xscr, xdfenv_t *xe, long flags)
+{
+	xdchange_t *xch;
+
+	for (xch = xscr; xch; xch = xch->next) {
+		int ignore = 1;
+		xrecord_t **rec;
+		long i;
+
+		rec = &xe->xdf1.recs[xch->i1];
+		for (i = 0; i < xch->chg1 && ignore; i++)
+			ignore = xdl_blankline(rec[i]->ptr, rec[i]->size, flags);
+
+		rec = &xe->xdf2.recs[xch->i2];
+		for (i = 0; i < xch->chg2 && ignore; i++)
+			ignore = xdl_blankline(rec[i]->ptr, rec[i]->size, flags);
+
+		xch->ignore = ignore;
+	}
+}
 
 int xdl_diff(mmfile_t *mf1, mmfile_t *mf2, xpparam_t const *xpp,
 	     xdemitconf_t const *xecfg, xdemitcb_t *ecb) {
 	xdchange_t *xscr;
 	xdfenv_t xe;
-	emit_func_t ef = xecfg->emit_func ?
-		(emit_func_t)xecfg->emit_func : xdl_emit_diff;
+	emit_func_t ef = xecfg->hunk_func ? xdl_call_hunk_func : xdl_emit_diff;
 
 	if (xdl_do_diff(mf1, mf2, xpp, &xe) < 0) {
 
@@ -555,6 +627,9 @@ int xdl_diff(mmfile_t *mf1, mmfile_t *mf2, xpparam_t const *xpp,
 		return -1;
 	}
 	if (xscr) {
+		if (xpp->flags & XDF_IGNORE_BLANK_LINES)
+			xdl_mark_ignorable(xscr, &xe, xpp->flags);
+
 		if (ef(&xe, xscr, ecb, xecfg) < 0) {
 
 			xdl_free_script(xscr);

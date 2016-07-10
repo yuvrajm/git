@@ -1,4 +1,6 @@
-#!/bin/sh
+# This is a shell library to calculate the remote repository and
+# upstream branch that should be pulled by "git pull" from the current
+# branch.
 
 # git-ls-remote could be called from outside a git managed repository;
 # this would fail in that case and would issue an error message.
@@ -54,37 +56,46 @@ get_remote_merge_branch () {
 error_on_missing_default_upstream () {
 	cmd="$1"
 	op_type="$2"
-	op_prep="$3"
+	op_prep="$3" # FIXME: op_prep is no longer used
 	example="$4"
 	branch_name=$(git symbolic-ref -q HEAD)
+	display_branch_name="${branch_name#refs/heads/}"
+	# If there's only one remote, use that in the suggestion
+	remote="$(gettext "<remote>")"
+	branch="$(gettext "<branch>")"
+	if test $(git remote | wc -l) = 1
+	then
+		remote=$(git remote)
+	fi
+
 	if test -z "$branch_name"
 	then
-		echo "You are not currently on a branch, so I cannot use any
-'branch.<branchname>.merge' in your configuration file.
-Please specify which branch you want to $op_type $op_prep on the command
-line and try again (e.g. '$example').
-See git-${cmd}(1) for details."
+		gettextln "You are not currently on a branch."
 	else
-		echo "You asked me to $cmd without telling me which branch you
-want to $op_type $op_prep, and 'branch.${branch_name#refs/heads/}.merge' in
-your configuration file does not tell me, either. Please
-specify which branch you want to use on the command line and
-try again (e.g. '$example').
-See git-${cmd}(1) for details.
-
-If you often $op_type $op_prep the same branch, you may want to
-use something like the following in your configuration file:
-    [branch \"${branch_name#refs/heads/}\"]
-    remote = <nickname>
-    merge = <remote-ref>"
-		test rebase = "$op_type" &&
-		echo "    rebase = true"
-		echo "
-    [remote \"<nickname>\"]
-    url = <url>
-    fetch = <refspec>
-
-See git-config(1) for details."
+		gettextln "There is no tracking information for the current branch."
+	fi
+	case "$op_type" in
+	rebase)
+		gettextln "Please specify which branch you want to rebase against."
+		;;
+	merge)
+		gettextln "Please specify which branch you want to merge with."
+		;;
+	*)
+		echo >&2 "BUG: unknown operation type: $op_type"
+		exit 1
+		;;
+	esac
+	eval_gettextln "See git-\${cmd}(1) for details."
+	echo
+	echo "    $example"
+	echo
+	if test -n "$branch_name"
+	then
+		gettextln "If you wish to set tracking information for this branch you can do so with:"
+		echo
+		echo "    git branch --set-upstream-to=$remote/$branch $display_branch_name"
+		echo
 	fi
 	exit 1
 }
